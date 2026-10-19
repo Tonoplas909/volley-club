@@ -51,14 +51,14 @@ Le développement du plan se fait **par sous-agents**. Le contrôleur (la sessio
 | B | 3 Déplacement et saut des joueurs (`player.ts`) | haiku | ✅ fait |
 | B | 4 Règles, score et fautes (`rules.ts`) | sonnet | ✅ fait |
 | B | 9 Entrées clavier et manette (`input/`) | haiku | ✅ fait |
-| C | 5 Gestes, qualité, déviation (`touch.ts`) | **opus** | à faire |
-| C | 8 Rendu Three.js (`render/`) | sonnet | à faire |
-| D | 6 Boucle de simulation (`simulation.ts`) | **opus** | à faire |
-| E | 7 IA (`ai/`) | **opus** | à faire |
-| E | 10 Menu, HUD et boucle de jeu (`ui/`, `main.ts`) | sonnet | à faire |
-| F | 11 Matchs IA contre IA et réglage du ressenti | **opus** | à faire |
+| C | 5 Gestes, qualité, déviation (`touch.ts`) | **opus** | ✅ fait |
+| C | 8 Rendu Three.js (`render/`) | sonnet | ✅ fait |
+| D | 6 Boucle de simulation (`simulation.ts`) | **opus** | ✅ fait |
+| E | 7 IA (`ai/`) | **opus** | ✅ fait |
+| E | 10 Menu, HUD et boucle de jeu (`ui/`, `main.ts`) | sonnet | ✅ fait |
+| F | 11 Matchs IA contre IA et réglage du ressenti | **opus** | ✅ fait |
 | — | Revue de chaque tâche | sonnet | — |
-| — | Revue finale de la branche | **opus** | à faire |
+| — | Revue finale de la branche | **opus** | ✅ fait |
 
 Le principe du tableau :
 - **haiku** pour le travail mécanique et entièrement spécifié (1 ou 2 fichiers) ;
