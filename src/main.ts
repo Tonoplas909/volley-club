@@ -4,16 +4,15 @@ import { createRenderer, isWebGLAvailable, type Overlay, type Renderer } from '.
 import { assignRoles, targetPosition } from './sim/ai/decisions';
 import { createBrain, type Brain } from './sim/ai/brain';
 import { createInitialState, NEUTRAL_COMMAND, step } from './sim/simulation';
-import { evaluatePress, gestureFor, idealPressTick, type PressEvaluation } from './sim/touch';
+import { evaluatePress, gestureFor, type PressEvaluation } from './sim/touch';
 import type {
   Command, GameEvent, GameState, MatchConfig, QualityTier,
 } from './sim/types';
 import { createHud } from './ui/hud';
 import { createMenu } from './ui/menu';
+import { timingRing } from './ui/overlay';
 import './ui/styles.css';
 
-/** Le timing ring s'ouvre 30 ticks (0,5 s) avant l'instant idéal (brief tâche 10). */
-const TIMING_RING_TICKS = 30;
 /** Facteur de ralenti du mode debug (spec § 3.3). */
 const DEBUG_TIME_SCALE = 0.25;
 /** Touches dont l'action par défaut du navigateur (défilement, aide) est supprimée pendant le match. */
@@ -66,18 +65,6 @@ function newSession(config: MatchConfig): Session {
     config, brains, prev: state, curr: state, acc: 0, paused: false, debug: false,
     actionLatch: false, events: [], pressEval: null, lastQuality: null, lastTier: null,
   };
-}
-
-/** Anneau de timing : 1 = ouvert (30 ticks avant), 0 = instant idéal ; null = masqué. */
-function timingRing(state: GameState, humanId: number | null, cmd: Command): number | null {
-  if (humanId === null) return null;
-  const gesture = gestureFor(state, humanId, cmd);
-  if (gesture === null) return null;
-  const ideal = idealPressTick(state, humanId, gesture);
-  if (ideal === null) return null;
-  const gap = ideal - state.tick;
-  if (gap < 0 || gap > TIMING_RING_TICKS) return null;
-  return Math.min(1, Math.max(0, gap / TIMING_RING_TICKS));
 }
 
 /** Suit les appuis et touches de l'humain pour l'affichage debug de la dernière qualité. */
