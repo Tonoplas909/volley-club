@@ -22,3 +22,34 @@ Ruling: exécution séquentielle des implémenteurs (1,2,3,4 puis 5,6,7 puis 8 p
 
 ## Progress
 Task 1: dispatched (sonnet), BASE c0a406e
+Task 1: implementer DONE (commit 49315cc) — mulberry32 local ; isSetPoint via awardPoint hypothétique ; borne y de la vibration laissée à la caméra (T5)
+Task 2: dispatched (sonnet), BASE 49315cc — en parallèle de la revue de la tâche 1
+Task 1: review — Needs fixes : 1 Important (fx.ts:42-52 recopie mulberry32 de sim/rng.ts → adaptateur sur rngNext). Fix round 1 en attente de la fin de T2 (pas deux implémenteurs en parallèle).
+Task 1: minor (deferred): pas de test block+perfect → 140 ms ; test « vibration non cumulée » peu discriminant ; commentaire sur le bruit retiré à chaque frame
+Task 1: ⚠️ → T5 : la caméra borne shake.y (jamais sous le sol, spec § 5.3). → T8 : createFx() à chaque nouveau match (spec § 8.7) et onEvents appelé à chaque step avec l'état de ce step.
+Task 2: implementer DONE_WITH_CONCERNS (commit e2630cd) — tests écrits après un premier jet (RED observé en restaurant les sources) ; distance Infinity si pas de point de contact (hors service/contre) ; mini-carte 180×100 avec équipe 0 en bas → terrain limité par la hauteur (≈ 42×84 px).
+Ruling: expectedGesture — le service est toujours « à portée » (cohérent avec isInReach) ; la règle « idealPressTick null → inReach false » vaut pour les autres gestes — la fiche se contredisait (service ballon tenu = inReach true) — coût si faux : bandeau du service mis en avant avant le lancer.
+Ruling: mini-carte en portrait (≈ 100 × 180 px CSS) au lieu de 180 × 100 — avec l'équipe 0 en bas, le terrain 8 × 16 m est vertical ; en paysage il tiendrait dans ≈ 42 × 84 px — courtToMinimap est paramétré par la taille, seul T7 change — coût si faux : coin bas-droit plus haut que prévu.
+Task 1: fix round 1 dispatched (implémenteur d'origine), FIX_BASE e2630cd ; revue T2 en parallèle
+Task 1: fix round 1 implémenté (commit 1c0672b, adaptateur rngNext + test contre parfait 140 ms) — re-revue en cours
+Task 3: dispatched (haiku), BASE 1c0672b
+Task 2: review — Needs fixes : 1 Important (overlay.ts:165-177 recopie la projection/distance d'evaluatePress → helper partagé pressDistance dans touch.ts + test de concordance block/serve/attack). Fix round 1 en attente de la fin de T3.
+Task 2: minor (deferred): idéal inconnu → explainPress donne timing 1 / placement 1 alors que la sim rate (carte « RATÉ » sans cause) ; distance Infinity à traiter comme non finie (T7/T8) ; find() du joueur humain répété ; test de concordance attaque sans comparaison de valeur ; HINT_THRESHOLD 0,6 hors TUNING ; TDD reconstruit
+Task 2: ⚠️ → T7 : mini-carte en portrait (Ruling déjà pris) ; noms Vec2 / TUNING.court vérifiés par le typecheck.
+Task 1: fix round 1/5 (1 addressed, 0 open — doublon mulberry32 ; commits e2630cd..1c0672b)
+Task 1: complete (commits c9ba337..1c0672b, review clean)
+Task 3: implementer DONE (commit 036f7c0) — clavier prioritaire si les deux agissent au même poll ; une touche maintenue bloque la bascule manette tant qu'elle reste enfoncée (accepté)
+Task 2: fix round 1 dispatched (implémenteur d'origine), FIX_BASE 036f7c0 ; revue T3 en parallèle
+Task 2: fix round 1 implémenté (commit a4a629d, pressDistance exporté de touch.ts + test de concordance) — re-revue en cours
+Task 3: complete (commits 1c0672b..036f7c0, review clean)
+Task 3: minor (deferred): toute touche maintenue (Shift, Tab…) bloque la bascule manette ; test de dérive à renforcer (après une phase clavier, bornes 0,2) ; test move≠0 écrit deux fois ; bouton manette maintenu = activité à chaque poll ; manette débranchée → device reste 'gamepad' jusqu'à une touche
+Task 4: dispatched (sonnet), BASE a4a629d — re-revue T2 en parallèle
+Task 2: fix round 1/5 (1 addressed, 0 open — doublon de distance avec evaluatePress ; commits 036f7c0..a4a629d)
+Task 2: complete (commits 49315cc..a4a629d, review clean)
+Task 2: minor (deferred): test de concordance en partie tautologique pour la distance (partagée) ; explainPress serve/block joueur inconnu → Infinity (inatteignable)
+Task 4: implementer DONE (commit 4480a17) — pressPosition exporté de touch.ts (réutilisé par pressDistance) ; pour le contre, attraction vers (x, 0) bornée par le dégagement du filet, non testée
+Task 4: review — Needs fixes : 1 Important (test d'attaque vacant : à v=5 le joueur non projeté est déjà hors rayon → v=2 + contrôle à vitesse nulle). Fix round 1 dispatched (implémenteur d'origine), FIX_BASE 4480a17.
+Task 4: minor (deferred): au contre, l'attraction vers (x, 0) dilue l'aide latérale et colle le contreur au filet (option : attraction en x seule, d latéral) ; assertion « borne » diagonale faible
+Task 4: fix round 1/5 (1 addressed, 0 open — test d'attaque vacant ; commits 4480a17..95daf32)
+Task 4: complete (commits a4a629d..95daf32, review clean)
+VAGUE A terminée. PAUSE : feu vert utilisateur requis pour la vague B (tâches 5, 6, 7).
