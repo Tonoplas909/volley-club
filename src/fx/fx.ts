@@ -1,3 +1,4 @@
+import { rngNext } from '../sim/rng';
 import { TUNING } from '../sim/tuning';
 import type { GameEvent, GameState } from '../sim/types';
 import { isSetPoint } from './setPoint';
@@ -19,22 +20,15 @@ const SHAKE_CUTOFF = 0.001;
 /** exp(−3) ≈ 5 % : la vibration est quasi éteinte au bout de decaySeconds. */
 const SHAKE_DECAY_RATE = 3;
 
-/** mulberry32 local : état uint32, valeur dans [0, 1). */
-function makeRandom(seed: number): () => number {
-  let s = seed >>> 0;
-  return () => {
-    s = (s + 0x6d2b79f5) >>> 0;
-    let t = s;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 export function createFx(options: { reducedMotion?: boolean; seed?: number } = {}): Fx {
   const { hitStopMs, slowMo, shake: shakeTuning } = TUNING.fx;
   const reducedMotion = options.reducedMotion === true;
-  const random = makeRandom(options.seed ?? DEFAULT_SEED);
+  let rngState = (options.seed ?? DEFAULT_SEED) >>> 0;
+  const random = (): number => {
+    const r = rngNext(rngState);
+    rngState = r.state;
+    return r.value;
+  };
 
   /** Gel restant (s). */
   let freeze = 0;
@@ -48,6 +42,7 @@ export function createFx(options: { reducedMotion?: boolean; seed?: number } = {
 
   const slowTotal = slowMo.seconds + slowMo.easeOutSeconds;
 
+  /** La direction est retirée à chaque frame active : le bruit change d'une image à l'autre. */
   function drawDirection(): void {
     shakeU = random() * 2 - 1;
     shakeV = random() * 2 - 1;

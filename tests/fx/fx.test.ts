@@ -50,6 +50,13 @@ describe('fx : arrêt sur image', () => {
     expect(fx.advance(0.02).timeScale).toBe(1);
   });
 
+  it('contre parfait : 140 ms (le contre prime sur perfect)', () => {
+    const fx = createFx();
+    fx.onEvents([touch('block', 'perfect')], calm);
+    expect(fx.advance(0.13).timeScale).toBe(0);
+    expect(fx.advance(0.02).timeScale).toBe(1);
+  });
+
   it('non-cumul : trois touches normales gèlent 60 ms, pas 180', () => {
     const fx = createFx();
     fx.onEvents([touch('reception', 'ok'), touch('reception', 'ok'), touch('reception', 'ok')], calm);
