@@ -4,7 +4,15 @@ import { firstConnectedGamepad, readGamepad } from './gamepad';
 
 export { keysToMove } from './keyboard';
 
-export type InputFrame = { command: Command; pausePressed: boolean; debugPressed: boolean };
+/** Périphérique utilisé en dernier (affiché dans le bandeau). */
+export type InputDevice = 'keyboard' | 'gamepad';
+
+export type InputFrame = {
+  command: Command;
+  pausePressed: boolean;
+  debugPressed: boolean;
+  device: InputDevice;
+};
 export interface InputSource {
   poll(): InputFrame;
   dispose(): void;
@@ -14,11 +22,20 @@ export function createInput(target: InputTarget): InputSource {
   const keyboard = createKeyboard(target);
   let prevPadAction = false;
   let prevPadPause = false;
+  let device: InputDevice = 'keyboard';
 
   return {
     poll(): InputFrame {
       const edges = keyboard.takeEdges();
       const pad = readGamepad(firstConnectedGamepad());
+
+      // Périphérique actif : le clavier est testé en dernier, il l'emporte si les deux agissent dans le même poll.
+      const padActive =
+        pad !== null &&
+        (pad.move.x !== 0 || pad.move.z !== 0 || pad.aim !== null || pad.action || pad.pause);
+      const keyboardActive = keyboard.held.size > 0 || edges.size > 0;
+      if (padActive) device = 'gamepad';
+      if (keyboardActive) device = 'keyboard';
 
       // Déplacement : la manette l'emporte si son stick gauche est non nul, sinon le clavier.
       const padHasMove = pad !== null && (pad.move.x !== 0 || pad.move.z !== 0);
@@ -42,6 +59,7 @@ export function createInput(target: InputTarget): InputSource {
         },
         pausePressed: edges.has('Escape') || padPauseEdge,
         debugPressed: edges.has('F1'),
+        device,
       };
     },
     dispose(): void {

@@ -221,3 +221,76 @@ describe('createInput manette', () => {
     input.dispose();
   });
 });
+
+describe('périphérique actif', () => {
+  it('départ clavier : le premier poll donne device keyboard', () => {
+    setPads([]);
+    const input = createInput(new EventTarget());
+    expect(input.poll().device).toBe('keyboard');
+    input.dispose();
+  });
+
+  it('bascule manette : un stick à 0,8 donne gamepad au poll suivant', () => {
+    setPads([]);
+    const input = createInput(new EventTarget());
+    expect(input.poll().device).toBe('keyboard');
+    setPads([fakePad([0.8, 0], [])]);
+    expect(input.poll().device).toBe('gamepad');
+    input.dispose();
+  });
+
+  it('point de vigilance 3 : un stick sous la zone morte, sans bouton, laisse keyboard', () => {
+    setPads([fakePad([0.1, -0.1], [])]);
+    const input = createInput(new EventTarget());
+    expect(input.poll().device).toBe('keyboard');
+    input.dispose();
+  });
+
+  it('un bouton action ou pause enfoncé donne gamepad', () => {
+    setPads([fakePad([0, 0], [true])]);
+    const actionInput = createInput(new EventTarget());
+    expect(actionInput.poll().device).toBe('gamepad');
+    actionInput.dispose();
+
+    setPads([fakePad([0, 0], [false, false, false, false, false, false, false, false, false, true])]);
+    const pauseInput = createInput(new EventTarget());
+    expect(pauseInput.poll().device).toBe('gamepad');
+    pauseInput.dispose();
+  });
+
+  it('un stick droit actif donne gamepad', () => {
+    setPads([fakePad([0, 0, 0.5, 0], [])]);
+    const input = createInput(new EventTarget());
+    expect(input.poll().device).toBe('gamepad');
+    input.dispose();
+  });
+
+  it('retour clavier : après la manette, un keydown de KeyW donne keyboard', () => {
+    setPads([fakePad([0.8, 0], [])]);
+    const target = new EventTarget();
+    const input = createInput(target);
+    expect(input.poll().device).toBe('gamepad');
+    target.dispatchEvent(keyEvent('keydown', 'KeyW'));
+    expect(input.poll().device).toBe('keyboard');
+    input.dispose();
+  });
+
+  it('clavier et manette dans le même poll : keyboard l’emporte', () => {
+    setPads([fakePad([0.8, 0], [])]);
+    const target = new EventTarget();
+    const input = createInput(target);
+    target.dispatchEvent(keyEvent('keydown', 'KeyW'));
+    expect(input.poll().device).toBe('keyboard');
+    input.dispose();
+  });
+
+  it('mémoire : sans nouvelle entrée, la valeur reste celle d’avant', () => {
+    setPads([fakePad([0.8, 0], [])]);
+    const input = createInput(new EventTarget());
+    expect(input.poll().device).toBe('gamepad');
+    setPads([fakePad([0, 0], [])]);
+    expect(input.poll().device).toBe('gamepad');
+    expect(input.poll().device).toBe('gamepad');
+    input.dispose();
+  });
+});
