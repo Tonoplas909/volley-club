@@ -1,0 +1,3 @@
+# Les scripts bash doivent garder des fins de ligne LF, même sous Windows.
+.claude/skills/**/scripts/* text eol=lf
+*.sh text eol=lf
