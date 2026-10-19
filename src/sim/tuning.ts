@@ -20,7 +20,8 @@ export const TUNING = {
     serveTimeoutTicks: 480,
     tiers: { perfect: 0.9, good: 0.6, ok: 0.3 },
     attackNearNetZ: 3,
-    secondTouchAttackAimForward: 0.7,
+    /** Au-dessus de 1/√2 : une diagonale clavier (0,707) ne transforme jamais la passe en attaque. */
+    secondTouchAttackAimForward: 0.9,
   },
   match: { placementTicks: 90, pointScoredTicks: 120, setEndTicks: 180 },
   ai: {

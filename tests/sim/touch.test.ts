@@ -117,6 +117,37 @@ describe('gestureFor', () => {
     expect(gestureFor(afterReception(low), 1, cmd({ x: 0, z: 1 }))).toBe('set');
   });
 
+  describe('2e touche : la passe ne devient pas une attaque impossible à jouer (I1)', () => {
+    const at = (tick: number): GameState => {
+      const s = afterReception(HIGH_NEAR_NET);
+      return { ...s, tick, ball: { ...s.ball, pos: positionAt(HIGH_NEAR_NET, secondsSince(HIGH_NEAR_NET, tick)) } };
+    };
+    const FORWARD = { x: 0, z: 1 };
+    const DIAGONAL = { x: -Math.SQRT1_2, z: Math.SQRT1_2 }; // Z+Q au clavier, normalisé
+    const base = afterReception(HIGH_NEAR_NET);
+    const attackTick = idealPressTick(base, 1, 'attack')!;
+    const setTick = idealPressTick(base, 1, 'set')!;
+
+    it('le tick idéal de la passe tombe après la fenêtre de timing de l attaque', () => {
+      expect(setTick).toBeGreaterThan(attackTick + TUNING.touch.timing.maxTicks);
+    });
+
+    it('diagonale avant du clavier : set, même quand l attaque est encore jouable', () => {
+      expect(gestureFor(at(attackTick), 1, cmd(DIAGONAL))).toBe('set');
+      expect(gestureFor(at(setTick), 1, cmd(DIAGONAL))).toBe('set');
+    });
+
+    it('visée avant franche au tick de la passe (attaque déjà passée) : set', () => {
+      expect(gestureFor(at(setTick), 1, cmd(FORWARD))).toBe('set');
+    });
+
+    it("visée avant franche tant que l'attaque peut être jouée : attack, puis set après la fenêtre", () => {
+      expect(gestureFor(at(attackTick), 1, cmd(FORWARD))).toBe('attack');
+      expect(gestureFor(at(attackTick + TUNING.touch.timing.maxTicks), 1, cmd(FORWARD))).toBe('attack');
+      expect(gestureFor(at(attackTick + TUNING.touch.timing.maxTicks + 1), 1, cmd(FORWARD))).toBe('set');
+    });
+  });
+
   it('touches = 2 : attack', () => {
     expect(gestureFor(afterReception(HIGH_NEAR_NET, 2), 1, NEUTRAL)).toBe('attack');
   });

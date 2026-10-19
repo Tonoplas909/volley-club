@@ -98,10 +98,17 @@ function canReceive(state: GameState, player: PlayerState): boolean {
   return isOnSide(landingPoint(ball.traj), player.team) || isOnSide(ball.pos, player.team);
 }
 
-/** Attaque en 2e touche : visée vers l'avant, ballon assez haut et frappé près du filet. */
+/**
+ * Attaque en 2e touche : visée franchement vers l'avant, ballon assez haut et frappé près du filet,
+ * et appui encore dans la fenêtre de timing de l'attaque. Passé cette fenêtre, l'attaque serait
+ * forcément ratée : l'appui reste une passe (le joueur qui court vers la zone de passe en tenant
+ * l'avant ne perd pas son ballon).
+ */
 function canAttackOnSecondTouch(state: GameState, player: PlayerState, cmd: Command): boolean {
   if (aimForward(cmd.aim, player.team) < T.secondTouchAttackAimForward) return false;
   if (remainingMaxHeight(state) < T.attackHitHeight) return false;
+  const ideal = idealPressTick(state, player.id, 'attack');
+  if (ideal === null || state.tick > ideal + T.timing.maxTicks) return false;
   const hit = contactPoint(state, player.id, 'attack');
   return hit !== null && Math.abs(hit.z) < T.attackNearNetZ;
 }
