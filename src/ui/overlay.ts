@@ -2,7 +2,10 @@
  * Calculs purs des repères affichés autour du joueur humain (spec § 6.5), sans DOM ni three.
  */
 import { whoTakesBall } from '../sim/ai/decisions';
-import { contactPoint, evaluatePress, gestureFor, idealPressTick } from '../sim/touch';
+import { jumpApexTicks } from '../sim/player';
+import {
+  blockSyncScore, contactPoint, evaluatePress, gestureFor, idealPressTick, placementScore, timingScore,
+} from '../sim/touch';
 import { TUNING } from '../sim/tuning';
 import type { Command, GameState, Gesture, PlayerState } from '../sim/types';
 
@@ -16,7 +19,7 @@ export const TIMING_RING_TICKS = 30;
  * les mains (± block.halfWidth) doivent couvrir l'abscisse de passage au filet. Le service est
  * toujours à portée (placement 1).
  */
-function isInReach(state: GameState, player: PlayerState, gesture: Gesture, ideal: number): boolean {
+export function isInReach(state: GameState, player: PlayerState, gesture: Gesture, ideal: number): boolean {
   if (gesture === 'serve') return true;
   if (gesture === 'block') {
     const contact = contactPoint(state, player.id, 'block');
@@ -26,11 +29,11 @@ function isInReach(state: GameState, player: PlayerState, gesture: Gesture, idea
 }
 
 /**
- * Anneau de timing : 1 = ouvert (30 ticks avant), 0 = instant idéal ; null = masqué.
- * Il n'apparaît que si un geste est possible, que c'est à l'humain de jouer ce ballon (jamais juste
- * après sa propre touche, qui donnerait une double touche) et qu'il est à portée.
+ * C'est à l'humain de jouer ce ballon : un geste est possible, il est désigné (whoTakesBall) en
+ * échange, et ce n'est pas juste après sa propre touche (ce serait une double touche).
+ * Prédicat commun de l'anneau de timing et du bandeau du geste attendu.
  */
-export function timingRing(state: GameState, humanId: number | null, cmd: Command): number | null {
+export function humansBallGesture(state: GameState, humanId: number | null, cmd: Command): Gesture | null {
   if (humanId === null) return null;
   const human = state.players.find((p) => p.id === humanId);
   if (!human) return null;
@@ -41,10 +44,80 @@ export function timingRing(state: GameState, humanId: number | null, cmd: Comman
     if (rally.touchingTeam === human.team && rally.lastToucherId === humanId) return null;
     if (whoTakesBall(state, human.team) !== humanId) return null;
   }
-  const ideal = idealPressTick(state, humanId, gesture);
+  return gesture;
+}
+
+/** Geste attendu de l'humain, et s'il est déjà à portée (même définition que l'anneau de timing). */
+export function expectedGesture(
+  state: GameState,
+  humanId: number | null,
+  cmd: Command,
+): { gesture: Gesture; inReach: boolean } | null {
+  const gesture = humansBallGesture(state, humanId, cmd);
+  if (gesture === null) return null;
+  const human = state.players.find((p) => p.id === humanId);
+  if (!human) return null;
+  // Le service est toujours à portée, même ballon tenu (pas encore d'instant idéal).
+  if (gesture === 'serve') return { gesture, inReach: true };
+  const ideal = idealPressTick(state, human.id, gesture);
+  return { gesture, inReach: ideal !== null && isInReach(state, human, gesture, ideal) };
+}
+
+/**
+ * Anneau de timing : 1 = ouvert (30 ticks avant), 0 = instant idéal ; null = masqué.
+ * Il n'apparaît que si c'est à l'humain de jouer ce ballon (humansBallGesture), dans les 30 ticks
+ * qui précèdent l'instant idéal, et s'il est à portée.
+ */
+export function timingRing(state: GameState, humanId: number | null, cmd: Command): number | null {
+  const gesture = humansBallGesture(state, humanId, cmd);
+  if (gesture === null) return null;
+  const human = state.players.find((p) => p.id === humanId);
+  if (!human) return null;
+  const ideal = idealPressTick(state, human.id, gesture);
   if (ideal === null) return null;
   const gap = ideal - state.tick;
   if (gap < 0 || gap > TIMING_RING_TICKS) return null;
   if (!isInReach(state, human, gesture, ideal)) return null;
   return gap / TIMING_RING_TICKS;
+}
+
+/** Détail d'un appui : notes (null = hors limite), distance au contact et écart (négatif = trop tôt). */
+export type PressExplanation = {
+  placement: number | null;
+  timing: number | null;
+  distance: number;
+  deltaTicks: number;
+};
+
+/**
+ * Explique un appui évalué au tick `pressTick` (la simulation l'évalue à `avant.tick + 1`), avec les
+ * mêmes règles que evaluatePress : distance au point de contact depuis la position projetée au
+ * sommet du saut pour l'attaque, 0 pour le service et le contre (placement vérifié à l'interception),
+ * timing de synchronisation pour le contre. Sans point de contact connu, la distance est infinie.
+ */
+export function explainPress(
+  state: GameState,
+  playerId: number,
+  gesture: Gesture,
+  pressTick: number,
+): PressExplanation {
+  const player = state.players.find((p) => p.id === playerId);
+  const ideal = idealPressTick(state, playerId, gesture);
+  const deltaTicks = ideal === null ? 0 : pressTick - ideal;
+  const timing = gesture === 'block' ? blockSyncScore(deltaTicks) : timingScore(deltaTicks);
+
+  let distance = 0;
+  if (gesture !== 'serve' && gesture !== 'block') {
+    const contact = contactPoint(state, playerId, gesture);
+    if (!player || !contact) {
+      distance = Infinity;
+    } else {
+      const lead = gesture === 'attack' ? jumpApexTicks() / TUNING.tickRate : 0;
+      distance = Math.hypot(
+        contact.x - (player.pos.x + player.vel.x * lead),
+        contact.z - (player.pos.z + player.vel.z * lead),
+      );
+    }
+  }
+  return { placement: placementScore(distance), timing, distance, deltaTicks };
 }

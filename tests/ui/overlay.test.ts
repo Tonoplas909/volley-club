@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { launchTo, positionAt, secondsSince } from '../../src/sim/ball';
 import { initialScore, newRally } from '../../src/sim/rules';
-import { contactPoint, idealPressTick } from '../../src/sim/touch';
+import { jumpApexTicks } from '../../src/sim/player';
+import { contactPoint, evaluatePress, idealPressTick } from '../../src/sim/touch';
 import { TUNING } from '../../src/sim/tuning';
 import type {
   Command, GameState, Gesture, PlayerState, TeamId, Trajectory, Vec2, Vec3,
 } from '../../src/sim/types';
-import { TIMING_RING_TICKS, timingRing } from '../../src/ui/overlay';
+import {
+  TIMING_RING_TICKS, expectedGesture, explainPress, timingRing,
+} from '../../src/ui/overlay';
 
 const R = TUNING.ball.radius;
 const HUMAN = 0;
@@ -192,5 +195,152 @@ describe('timingRing', () => {
     const t = idealPressTick(s, HUMAN, 'serve')!;
     expect(timingRing(atTick(s, t), HUMAN, NEUTRAL)).toBe(0);
     expect(timingRing(atTick(s, t), TEAMMATE, NEUTRAL)).toBeNull();
+  });
+});
+
+/** Service : l'humain (serveur) a lancé la balle, qui monte vers son apex. */
+function tossState(): GameState {
+  const hand = { x: -2, y: 1, z: -9 };
+  const toss = launchTo(hand, hand, 1, 0);
+  const base = rallyState(toss, 5);
+  return {
+    ...base,
+    phase: 'serve',
+    ball: { mode: 'flying', traj: toss, pos: hand, lastTouch: null },
+    rally: newRally(),
+    players: base.players.map((p) => (p.id === HUMAN
+      ? {
+        ...p,
+        pos: { x: -2, y: 0, z: -9 },
+        pending: { gesture: 'toss', pressTick: 0, resolveTick: 30, quality: null, aim: { x: 0, z: 0 } },
+      }
+      : p)),
+  };
+}
+
+describe('expectedGesture', () => {
+  const reception = standOn(rallyState(INTO_HUMAN_LANE, 10), HUMAN, 'reception');
+  const ideal = idealPressTick(reception, HUMAN, 'reception')!;
+
+  it("ballon de l'humain à 3 m du contact : réception attendue, pas à portée", () => {
+    const c = contactPoint(reception, HUMAN, 'reception')!;
+    const far = moved(reception, HUMAN, { x: c.x, z: c.z - 3 });
+    expect(expectedGesture(atTick(far, 10), HUMAN, NEUTRAL)).toEqual({ gesture: 'reception', inReach: false });
+  });
+
+  it('à 0,2 m du contact : à portée', () => {
+    const c = contactPoint(reception, HUMAN, 'reception')!;
+    const near = moved(reception, HUMAN, { x: c.x, z: c.z - 0.2 });
+    expect(expectedGesture(atTick(near, 10), HUMAN, NEUTRAL)).toEqual({ gesture: 'reception', inReach: true });
+  });
+
+  it('visible bien avant les 30 derniers ticks (contrairement à l\'anneau)', () => {
+    const early = atTick(reception, 10);
+    expect(ideal - 10).toBeGreaterThan(TIMING_RING_TICKS);
+    expect(timingRing(early, HUMAN, NEUTRAL)).toBeNull();
+    expect(expectedGesture(early, HUMAN, NEUTRAL)).toEqual({ gesture: 'reception', inReach: true });
+  });
+
+  it('ballon du couloir du coéquipier : null', () => {
+    const s = standOn(rallyState(INTO_TEAMMATE_LANE, 10), HUMAN, 'reception');
+    expect(expectedGesture(s, HUMAN, NEUTRAL)).toBeNull();
+  });
+
+  it('juste après sa propre réception : null', () => {
+    const s = standOn(
+      rallyState(HIGH_NEAR_NET, 10, { toucher: HUMAN, team: 0, touches: 1, gesture: 'reception' }),
+      HUMAN, 'set',
+    );
+    expect(expectedGesture(s, HUMAN, NEUTRAL)).toBeNull();
+  });
+
+  it('sans humain : null', () => {
+    expect(expectedGesture(reception, null, NEUTRAL)).toBeNull();
+  });
+
+  it('service : humain serveur, ballon tenu', () => {
+    const toss = tossState();
+    const held: GameState = {
+      ...toss,
+      ball: { mode: 'held', traj: toss.ball.traj, pos: toss.ball.pos, lastTouch: null },
+      players: toss.players.map((p) => (p.id === HUMAN ? { ...p, pending: null } : p)),
+    };
+    expect(expectedGesture(held, HUMAN, NEUTRAL)).toEqual({ gesture: 'serve', inReach: true });
+  });
+
+  it('service : pendant le lancer', () => {
+    expect(expectedGesture(tossState(), HUMAN, NEUTRAL)).toEqual({ gesture: 'serve', inReach: true });
+  });
+});
+
+describe('explainPress', () => {
+  const reception = standOn(rallyState(INTO_HUMAN_LANE, 10), HUMAN, 'reception');
+  const ideal = idealPressTick(reception, HUMAN, 'reception')!;
+
+  it('au tick idéal, sous le contact : tout à 1', () => {
+    expect(explainPress(reception, HUMAN, 'reception', ideal)).toEqual({
+      placement: 1, timing: 1, distance: 0, deltaTicks: 0,
+    });
+  });
+
+  it('à 2 m du contact : placement nul (trop loin)', () => {
+    const c = contactPoint(reception, HUMAN, 'reception')!;
+    const far = moved(reception, HUMAN, { x: c.x, z: c.z - 2 });
+    const e = explainPress(far, HUMAN, 'reception', ideal);
+    expect(e.placement).toBeNull();
+    expect(e.distance).toBeCloseTo(2);
+    expect(e.timing).toBe(1);
+  });
+
+  it('20 ticks trop tôt : timing nul, écart négatif', () => {
+    const e = explainPress(reception, HUMAN, 'reception', ideal - 20);
+    expect(e.timing).toBeNull();
+    expect(e.deltaTicks).toBe(-20);
+    expect(e.placement).toBe(1);
+  });
+
+  it('concorde avec evaluatePress (note de placement et de timing)', () => {
+    const c = contactPoint(reception, HUMAN, 'reception')!;
+    const off = moved(reception, HUMAN, { x: c.x, z: c.z - 0.9 });
+    const tick = ideal + 4;
+    const ev = evaluatePress(atTick(off, tick), HUMAN, 'reception')!;
+    const e = explainPress(off, HUMAN, 'reception', tick);
+    expect(e.placement).toBeCloseTo(ev.placement);
+    expect(e.timing).toBeCloseTo(ev.timing);
+  });
+
+  it("attaque : la distance part de la position projetée au sommet du saut", () => {
+    const s = standOn(
+      rallyState(HIGH_NEAR_NET, 10, { toucher: TEAMMATE, team: 0, touches: 2, gesture: 'set' }),
+      HUMAN, 'attack',
+    );
+    const t = idealPressTick(s, HUMAN, 'attack')!;
+    expect(explainPress(s, HUMAN, 'attack', t).distance).toBeCloseTo(0);
+    const human = s.players[HUMAN]!;
+    const running = moved(s, HUMAN, { x: human.pos.x, z: human.pos.z }, { x: 0, z: -TUNING.player.maxSpeed });
+    const lead = jumpApexTicks() / TUNING.tickRate;
+    expect(explainPress(running, HUMAN, 'attack', t).distance).toBeCloseTo(TUNING.player.maxSpeed * lead);
+    const ev = evaluatePress(atTick(running, t), HUMAN, 'attack');
+    expect(explainPress(running, HUMAN, 'attack', t).placement === null).toBe(ev === null);
+  });
+
+  it('service : distance 0, timing sur le lancer', () => {
+    const s = tossState();
+    const t = idealPressTick(s, HUMAN, 'serve')!;
+    expect(explainPress(s, HUMAN, 'serve', t)).toEqual({ placement: 1, timing: 1, distance: 0, deltaTicks: 0 });
+    expect(explainPress(s, HUMAN, 'serve', t + 40).timing).toBeNull();
+  });
+
+  it('contre : timing de synchronisation (plus tolérant que le timing ordinaire)', () => {
+    const set = launchTo({ x: 1, y: 0.8, z: 5 }, { x: 1, y: R, z: 1 }, 2.0, 0);
+    const base = rallyState(set, 10, { toucher: 2, team: 1, touches: 2, gesture: 'set' });
+    const s = moved(moved(base, 3, { x: 1, z: 1 }), TEAMMATE, { x: 3, z: -6 });
+    const t = idealPressTick(s, HUMAN, 'block')!;
+    const delta = TUNING.touch.block.syncMaxTicks - 1;
+    expect(delta).toBeGreaterThan(TUNING.touch.timing.maxTicks);
+    const e = explainPress(s, HUMAN, 'block', t + delta);
+    expect(e.timing).not.toBeNull();
+    expect(e.distance).toBe(0);
+    expect(explainPress(s, HUMAN, 'block', t + TUNING.touch.block.syncMaxTicks + 1).timing).toBeNull();
   });
 });
