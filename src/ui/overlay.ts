@@ -2,9 +2,9 @@
  * Calculs purs des repères affichés autour du joueur humain (spec § 6.5), sans DOM ni three.
  */
 import { whoTakesBall } from '../sim/ai/decisions';
-import { jumpApexTicks } from '../sim/player';
 import {
-  blockSyncScore, contactPoint, evaluatePress, gestureFor, idealPressTick, placementScore, timingScore,
+  blockSyncScore, contactPoint, evaluatePress, gestureFor, idealPressTick, placementScore, pressDistance,
+  timingScore,
 } from '../sim/touch';
 import { TUNING } from '../sim/tuning';
 import type { Command, GameState, Gesture, PlayerState } from '../sim/types';
@@ -91,9 +91,8 @@ export type PressExplanation = {
 
 /**
  * Explique un appui évalué au tick `pressTick` (la simulation l'évalue à `avant.tick + 1`), avec les
- * mêmes règles que evaluatePress : distance au point de contact depuis la position projetée au
- * sommet du saut pour l'attaque, 0 pour le service et le contre (placement vérifié à l'interception),
- * timing de synchronisation pour le contre. Sans point de contact connu, la distance est infinie.
+ * mêmes règles que evaluatePress (distance via pressDistance, timing de synchronisation pour le
+ * contre). Sans point de contact connu, la distance est infinie.
  */
 export function explainPress(
   state: GameState,
@@ -101,23 +100,10 @@ export function explainPress(
   gesture: Gesture,
   pressTick: number,
 ): PressExplanation {
-  const player = state.players.find((p) => p.id === playerId);
   const ideal = idealPressTick(state, playerId, gesture);
   const deltaTicks = ideal === null ? 0 : pressTick - ideal;
   const timing = gesture === 'block' ? blockSyncScore(deltaTicks) : timingScore(deltaTicks);
 
-  let distance = 0;
-  if (gesture !== 'serve' && gesture !== 'block') {
-    const contact = contactPoint(state, playerId, gesture);
-    if (!player || !contact) {
-      distance = Infinity;
-    } else {
-      const lead = gesture === 'attack' ? jumpApexTicks() / TUNING.tickRate : 0;
-      distance = Math.hypot(
-        contact.x - (player.pos.x + player.vel.x * lead),
-        contact.z - (player.pos.z + player.vel.z * lead),
-      );
-    }
-  }
+  const distance = pressDistance(state, playerId, gesture) ?? Infinity;
   return { placement: placementScore(distance), timing, distance, deltaTicks };
 }

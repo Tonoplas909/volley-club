@@ -204,6 +204,23 @@ export function qualityTier(q: number): QualityTier {
   return 'miss';
 }
 
+/**
+ * Distance entre le joueur et le point de contact idéal, telle que la simulation la juge.
+ * Attaque : depuis la position projetée au sommet du saut (pos + vel · montée). Service et contre : 0
+ * (le contre vérifie son placement à l'interception). null = joueur inconnu ou pas de point de contact.
+ */
+export function pressDistance(state: GameState, playerId: number, gesture: Gesture): number | null {
+  const player = findPlayer(state, playerId);
+  if (!player) return null;
+  if (gesture === 'serve' || gesture === 'block') return 0;
+  const contact = contactPoint(state, playerId, gesture);
+  if (!contact) return null;
+  const lead = gesture === 'attack' ? jumpApexTicks() / TUNING.tickRate : 0;
+  const x = player.pos.x + player.vel.x * lead;
+  const z = player.pos.z + player.vel.z * lead;
+  return Math.hypot(contact.x - x, contact.z - z);
+}
+
 /** Évalue un appui au tick courant. null = raté (hors portée ou hors fenêtre). */
 export function evaluatePress(state: GameState, playerId: number, gesture: Gesture): PressEvaluation | null {
   const player = findPlayer(state, playerId);
@@ -217,12 +234,9 @@ export function evaluatePress(state: GameState, playerId: number, gesture: Gestu
     return timing === null ? null : { quality: timing, placement: 1, timing };
   }
 
-  const contact = contactPoint(state, playerId, gesture);
-  if (!contact) return null;
-  const lead = gesture === 'attack' ? jumpApexTicks() / TUNING.tickRate : 0;
-  const x = player.pos.x + player.vel.x * lead;
-  const z = player.pos.z + player.vel.z * lead;
-  const placement = placementScore(Math.hypot(contact.x - x, contact.z - z));
+  const distance = pressDistance(state, playerId, gesture);
+  if (distance === null) return null;
+  const placement = placementScore(distance);
   const timing = timingScore(delta);
   if (placement === null || timing === null) return null;
   return { quality: placement * timing, placement, timing };

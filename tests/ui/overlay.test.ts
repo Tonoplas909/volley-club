@@ -343,4 +343,38 @@ describe('explainPress', () => {
     expect(e.distance).toBe(0);
     expect(explainPress(s, HUMAN, 'block', t + TUNING.touch.block.syncMaxTicks + 1).timing).toBeNull();
   });
+
+  it('concordance avec evaluatePress pour le service, le contre et l\'attaque (placement et timing)', () => {
+    const serve = tossState();
+    const serveIdeal = idealPressTick(serve, HUMAN, 'serve')!;
+
+    const set = launchTo({ x: 1, y: 0.8, z: 5 }, { x: 1, y: R, z: 1 }, 2.0, 0);
+    const blockBase = rallyState(set, 10, { toucher: 2, team: 1, touches: 2, gesture: 'set' });
+    const block = moved(moved(blockBase, 3, { x: 1, z: 1 }), TEAMMATE, { x: 3, z: -6 });
+    const blockIdeal = idealPressTick(block, HUMAN, 'block')!;
+
+    const attack = standOn(
+      rallyState(HIGH_NEAR_NET, 10, { toucher: TEAMMATE, team: 0, touches: 2, gesture: 'set' }),
+      HUMAN, 'attack',
+    );
+    const attackIdeal = idealPressTick(attack, HUMAN, 'attack')!;
+    const h = attack.players[HUMAN]!;
+    const drifting = moved(attack, HUMAN, { x: h.pos.x, z: h.pos.z }, { x: 0.5, z: -1 });
+
+    const cases: [GameState, Gesture, number][] = [
+      [serve, 'serve', serveIdeal],
+      [block, 'block', blockIdeal],
+      [attack, 'attack', attackIdeal],
+      [drifting, 'attack', attackIdeal],
+    ];
+    for (const [state, gesture, ideal] of cases) {
+      for (const dt of [-3, 0, 5]) {
+        const ev = evaluatePress(atTick(state, ideal + dt), HUMAN, gesture);
+        const ex = explainPress(state, HUMAN, gesture, ideal + dt);
+        expect(ev).not.toBeNull();
+        expect(ex.placement).toBeCloseTo(ev!.placement);
+        expect(ex.timing).toBeCloseTo(ev!.timing);
+      }
+    }
+  });
 });
