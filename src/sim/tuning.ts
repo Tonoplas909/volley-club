@@ -36,6 +36,18 @@ export const TUNING = {
     /** Le serveur IA lance le ballon ce nombre de ticks après le début de la phase serve. */
     serveDelayTicks: 30,
   },
+  /**
+   * V1.1, impact (hors simulation) : arrêts sur image (ms de temps réel), ralenti, vibrations de caméra
+   * (amplitude en mètres, décroissance en secondes) et durée d'affichage des retours de geste.
+   */
+  fx: {
+    hitStopMs: { touch: 60, perfect: 100, attack: 140, block: 140 },
+    slowMo: { scale: 0.35, seconds: 0.6, easeOutSeconds: 0.15 },
+    shake: { attack: 0.25, block: 0.2, landing: 0.12, decaySeconds: 0.25 },
+    feedbackSeconds: 1.5,
+  },
+  /** V1.1, aimantation de l'humain (rayon et distances en mètres, force dans [0, 1]). */
+  assist: { magnetRadius: 1.5, magnetStrength: 0.6, magnetFullDistance: 0.5, magnetDeadZone: 0.1 },
 } as const;
 
 export type Tuning = typeof TUNING;
