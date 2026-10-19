@@ -24,10 +24,15 @@ export const TUNING = {
     secondTouchAttackAimForward: 0.9,
   },
   match: { placementTicks: 90, pointScoredTicks: 120, setEndTicks: 180 },
+  /**
+   * blockLateralError : écart-type (m) de l'erreur latérale du contreur IA, tirée à chaque trajectoire,
+   * qui s'ajoute à positionError : il devine la ligne de frappe, le contre reste possible sans être
+   * systématique face à une attaque droite parfaite (revue finale, I3).
+   */
   ai: {
-    easy:   { reactionTicks: 24, positionError: 0.6, timingNoiseTicks: 7.2 },
-    normal: { reactionTicks: 15, positionError: 0.3, timingNoiseTicks: 4.2 },
-    hard:   { reactionTicks: 9,  positionError: 0.1, timingNoiseTicks: 2.1 },
+    easy:   { reactionTicks: 24, positionError: 0.6, timingNoiseTicks: 7.2, blockLateralError: 0.9 },
+    normal: { reactionTicks: 15, positionError: 0.3, timingNoiseTicks: 4.2, blockLateralError: 0.7 },
+    hard:   { reactionTicks: 9,  positionError: 0.1, timingNoiseTicks: 2.1, blockLateralError: 0.4 },
     /** Le serveur IA lance le ballon ce nombre de ticks après le début de la phase serve. */
     serveDelayTicks: 30,
   },

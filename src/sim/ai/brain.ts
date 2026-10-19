@@ -69,17 +69,23 @@ export function createBrain(playerId: number, difficulty: Difficulty, seed: numb
   let reacted = false;
   let error: Vec2 = ZERO;
   let timingNoise = 0;
+  let blockOffset = 0;
   let target: Vec2 | null = null;
   let pressedKey: string | null = null;
 
-  /** Nouvelle trajectoire prise en compte : tirage de l'erreur de placement et du bruit de timing. */
+  /**
+   * Nouvelle trajectoire prise en compte : tirage de l'erreur de placement, du bruit de timing
+   * et de l'erreur latérale du contreur (il devine la ligne de frappe adverse).
+   */
   function react(): void {
     reacted = true;
     const e = rngInDisc(rng, preset.positionError);
     const g = rngGaussian(e.state);
-    rng = g.state;
+    const b = rngGaussian(g.state);
+    rng = b.state;
     error = e.value;
     timingNoise = Math.round(g.value * preset.timingNoiseTicks);
+    blockOffset = b.value * preset.blockLateralError;
   }
 
   /**
@@ -152,7 +158,8 @@ export function createBrain(playerId: number, difficulty: Difficulty, seed: numb
 
       if (reacted) target = targetPosition(state, playerId);
       const here = { x: player.pos.x, z: player.pos.z };
-      const aimPoint = target ? { x: target.x + error.x, z: target.z + error.z } : here;
+      const lateral = reacted && assignRoles(state)[playerId] === 'blocker' ? blockOffset : 0;
+      const aimPoint = target ? { x: target.x + error.x + lateral, z: target.z + error.z } : here;
       let move = moveToward(here, aimPoint);
       if (reacted && target && pressedKey !== key && isAttackApproach(state, player)) {
         const ideal = idealPressTick(state, playerId, 'attack');

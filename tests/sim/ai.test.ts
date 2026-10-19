@@ -8,10 +8,10 @@ import { launchTo, positionAt } from '../../src/sim/ball';
 import { currentServerId, laneOf, sideOf } from '../../src/sim/court';
 import { initialScore } from '../../src/sim/rules';
 import { createInitialState, NEUTRAL_COMMAND, step } from '../../src/sim/simulation';
-import { attackTarget, contactPoint } from '../../src/sim/touch';
+import { attackTarget, contactPoint, idealPressTick } from '../../src/sim/touch';
 import { TUNING } from '../../src/sim/tuning';
 import type {
-  BallState, Command, GameEvent, GameState, MatchConfig, RallyState, TeamId, Trajectory, Vec2,
+  BallState, Command, Difficulty, GameEvent, GameState, MatchConfig, RallyState, TeamId, Trajectory, Vec2,
 } from '../../src/sim/types';
 
 const R = TUNING.ball.radius;
@@ -78,6 +78,13 @@ describe('difficultyPreset', () => {
     expect(difficultyPreset('easy')).toEqual(TUNING.ai.easy);
     expect(difficultyPreset('normal').reactionTicks).toBe(TUNING.ai.normal.reactionTicks);
     expect(difficultyPreset('hard').positionError).toBeLessThan(difficultyPreset('easy').positionError);
+  });
+
+  it("l'erreur latérale du contreur décroît avec la difficulté et reste non nulle", () => {
+    const [easy, normal, hard] = (['easy', 'normal', 'hard'] as const).map((d) => difficultyPreset(d).blockLateralError);
+    expect(hard).toBeGreaterThan(0);
+    expect(hard).toBeLessThan(normal!);
+    expect(normal).toBeLessThan(easy!);
   });
 });
 
@@ -356,6 +363,64 @@ describe('cerveau', () => {
       expect(attack).toMatchObject({ type: 'touch', playerId: 0 });
       if (attack?.type === 'touch') expect(attack.quality).toBeGreaterThanOrEqual(TUNING.touch.tiers.good);
     }
+  });
+
+  describe("contreur IA face à une attaque droite parfaite de l'équipe 0 (revue finale, I3)", () => {
+    const SEEDS = 100;
+
+    /**
+     * Passe du joueur 1 vers le couloir 0 ; le joueur 0, immobile sur le point de frappe, appuie au tick
+     * idéal sans direction. Le contreur adverse (joueur 2) part déjà en face, au filet ; le joueur 3 défend.
+     * Renvoie la part des attaques « Parfait » contrées.
+     */
+    function blockedShare(level: Difficulty): number {
+      let perfect = 0;
+      let blocked = 0;
+      for (let seed = 1; seed <= SEEDS; seed++) {
+        const traj = launchTo({ x: 0, y: 2.2, z: -1 }, { x: -2, y: R, z: -1 }, TUNING.touch.flightTime.set, 300);
+        let s = rallyState(
+          traj,
+          { playerId: 1, team: 0, gesture: 'set', tick: 300 },
+          { touchingTeam: 0, touches: 2, lastToucherId: 1 },
+        );
+        const hit = contactPoint(s, 0, 'attack')!;
+        s.players[0]!.pos = { x: hit.x, y: 0, z: hit.z };
+        s.players[1]!.pos = { x: 0, y: 0, z: -1 };
+        s.players[2]!.pos = { x: hit.x, y: 0, z: 0.5 };
+        const brains = new Map([2, 3].map((id) => [id, createBrain(id, level, seed * 10 + id)]));
+        const ideal = idealPressTick(s, 0, 'attack')!;
+        let attackTier: string | null = null;
+        let wasBlocked = false;
+        for (let i = 0; i < 200 && s.phase === 'rally' && !wasBlocked; i++) {
+          const press = s.tick + 1 === ideal; // l'appui est joué au step suivant
+          const cmds = s.players.map((p) => (p.id === 0
+            ? { ...NEUTRAL_COMMAND, actionPressed: press }
+            : brains.get(p.id)?.think(s) ?? NEUTRAL_COMMAND));
+          s = step(s, cmds);
+          for (const e of s.events) {
+            if (e.type === 'touch' && e.playerId === 0 && e.gesture === 'attack') attackTier = e.tier;
+            if (e.type === 'touch' && e.gesture === 'block' && attackTier !== null) wasBlocked = true;
+          }
+        }
+        expect(attackTier).toBe('perfect');
+        perfect += 1;
+        if (wasBlocked) blocked += 1;
+      }
+      return blocked / perfect;
+    }
+
+    // Contreur déjà en face au filet : la situation la plus favorable au contre. Avant l'erreur latérale
+    // (TUNING.ai.*.blockLateralError), il contrait 99 % (normal) et 100 % (hard) de ces attaques.
+    // En match, la même attaque n'est contrée qu'environ 3 fois sur 10 en normal (sonde de la revue finale).
+    it('le contre reste possible sans être systématique, et croît avec la difficulté', () => {
+      const easy = blockedShare('easy');
+      const normal = blockedShare('normal');
+      const hard = blockedShare('hard');
+      expect(normal).toBeGreaterThanOrEqual(0.3);
+      expect(normal).toBeLessThanOrEqual(0.7);
+      expect(hard).toBeGreaterThan(normal);
+      expect(normal).toBeGreaterThan(easy);
+    });
   });
 
   it('intégration : 4 cerveaux normal, 3000 steps sans exception, au moins une touche hors service', () => {

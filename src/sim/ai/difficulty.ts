@@ -9,6 +9,8 @@ export type DifficultyPreset = {
   positionError: number;
   /** Écart-type (ticks) du bruit de timing de l'appui. */
   timingNoiseTicks: number;
+  /** Écart-type (m) de l'erreur latérale supplémentaire du contreur, tirée à chaque trajectoire. */
+  blockLateralError: number;
 };
 
 export const DIFFICULTIES: readonly Difficulty[] = ['easy', 'normal', 'hard'];
