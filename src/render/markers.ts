@@ -8,6 +8,9 @@ const LANDING_RADIUS = 0.35;
 const ASSIST_RADIUS = 0.7;
 const RING_BASE = 0.4;
 const RING_SPAN = 1.2;
+/** Épaisseur absolue de l'anneau (m), identique à tous les rayons : lisible même fermé (≈ 5 px). */
+const RING_WIDTH = 0.14;
+const RING_SEGMENTS = 48;
 const RING_GREEN_BELOW = 0.1;
 const RING_COLOR = 0xffffff;
 const RING_GREEN = 0x38e06b;
@@ -71,6 +74,20 @@ function flatDisc(radius: number, color: number, opacity: number, y: number): TH
   return mesh;
 }
 
+/**
+ * Anneau plat de rayon extérieur 1 dont on fixe le rayon intérieur. Mis à l'échelle par le rayon voulu,
+ * il garde ainsi une épaisseur absolue (RingGeometry, lui, s'amincit avec l'échelle).
+ */
+function setRingInner(geometry: THREE.RingGeometry, inner: number): void {
+  const pos = geometry.attributes.position as THREE.BufferAttribute;
+  const perRow = RING_SEGMENTS + 1; // RingGeometry : rangée intérieure puis rangée extérieure
+  for (let i = 0; i < perRow; i++) {
+    const a = (i / RING_SEGMENTS) * Math.PI * 2;
+    pos.setXY(i, inner * Math.cos(a), inner * Math.sin(a));
+  }
+  pos.needsUpdate = true;
+}
+
 type FloatingText = { sprite: THREE.Sprite; playerId: number; start: number; anchor: Vec3; active: boolean };
 
 export interface MarkersView {
@@ -93,7 +110,7 @@ export function createMarkers(): MarkersView {
   const landing = flatDisc(LANDING_RADIUS, 0xe5483b, 0.6, GROUND_Y.landing);
   const assist = flatDisc(ASSIST_RADIUS, 0x4fd1ff, 0.3, GROUND_Y.assist);
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.93, 1, 48),
+    new THREE.RingGeometry(0.5, 1, RING_SEGMENTS, 1),
     new THREE.MeshBasicMaterial({ color: RING_COLOR, transparent: true, opacity: 0.9, depthWrite: false }),
   );
   ring.rotation.x = -Math.PI / 2;
@@ -157,7 +174,9 @@ export function createMarkers(): MarkersView {
       if (t !== null && humanPos) {
         ring.position.x = humanPos.x;
         ring.position.z = humanPos.z;
-        ring.scale.setScalar(RING_BASE + RING_SPAN * t);
+        const radius = RING_BASE + RING_SPAN * t;
+        ring.scale.setScalar(radius);
+        setRingInner(ring.geometry as THREE.RingGeometry, 1 - RING_WIDTH / radius);
         (ring.material as THREE.MeshBasicMaterial).color.setHex(t < RING_GREEN_BELOW ? RING_GREEN : RING_COLOR);
       }
 
