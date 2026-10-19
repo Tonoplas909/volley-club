@@ -6,9 +6,11 @@ import { landingPoint } from '../ball';
 import {
   currentServerId, isOnSide, laneCenterX, laneOf, sideOf, startPosition, teamPlayers,
 } from '../court';
+import { jumpApexTicks } from '../player';
 import { rngRange } from '../rng';
 import { attackTarget, contactPoint } from '../touch';
-import type { GameState, Gesture, PlayerRole, PlayerState, TeamId, Vec2 } from '../types';
+import { TUNING } from '../tuning';
+import type { GameState, Gesture, PlayerRole, PlayerState, TeamId, Vec2, Vec3 } from '../types';
 
 /** Positions des rôles, en mètres du filet (multipliées par le côté de l'équipe). */
 const RECEIVE_DEPTH = 5;
@@ -256,20 +258,41 @@ export function targetPosition(state: GameState, playerId: number): Vec2 {
 }
 
 /**
+ * Abscisse où la frappe de `from` vers `to` franchit le filet. Le frein agit de la même façon sur x et z :
+ * la trajectoire est une droite dans le plan xz.
+ */
+function netCrossingX(from: Vec2, to: Vec2): number {
+  const f = Math.abs(from.z) / (Math.abs(from.z) + Math.abs(to.z));
+  return from.x + f * (to.x - from.x);
+}
+
+/**
  * Visée d'attaque : la cible la plus éloignée du défenseur adverse le plus proche, plus un petit bruit.
- * La feinte (visée vers l'arrière) n'est candidate que si tous les défenseurs adverses sont au-delà de 5 m.
- * Les visées sont ramenées à une norme ≤ 1 (contrat de Command), avant le calcul de la cible.
+ * Une frappe qui franchit le filet dans les mains d'un contreur (adversaire à portée de contre du filet)
+ * ne vaut que son bruit ; la feinte, qui lobe le contre, n'est pas concernée.
+ * La feinte (visée vers l'arrière) n'est candidate que si tous les défenseurs adverses hors contre
+ * sont au-delà de 5 m. Les visées sont ramenées à une norme ≤ 1 (contrat de Command), avant le calcul de la cible.
+ * La frappe part de la position au sommet du saut : le saut conserve l'élan (pos + vel · montée).
  */
 export function chooseAttackAim(state: GameState, attackerId: number, rng: number): { aim: Vec2; rng: number } {
   const attacker = findPlayer(state, attackerId);
   const team = attacker.team;
   const defenders = teamPlayers(state.players, other(team));
+  const block = TUNING.touch.block;
+  const blockers = defenders.filter((d) => Math.abs(d.pos.z) <= block.maxNetDistance);
+  const lead = jumpApexTicks() / TUNING.tickRate;
+  const hitPos: Vec3 = {
+    x: attacker.pos.x + attacker.vel.x * lead,
+    y: attacker.pos.y,
+    z: attacker.pos.z + attacker.vel.z * lead,
+  };
 
   const candidates: Vec2[] = [];
   for (const forward of ATTACK_AIM_FORWARD) {
     for (const x of ATTACK_AIM_X) candidates.push(aimFrom(x, forward, team));
   }
-  if (defenders.every((d) => Math.abs(d.pos.z) > TIP_MIN_DEFENDER_DEPTH)) {
+  const fieldDefenders = defenders.filter((d) => !blockers.includes(d));
+  if (fieldDefenders.every((d) => Math.abs(d.pos.z) > TIP_MIN_DEFENDER_DEPTH)) {
     candidates.push(aimFrom(0, TIP_AIM_FORWARD, team));
   }
 
@@ -277,11 +300,13 @@ export function chooseAttackAim(state: GameState, attackerId: number, rng: numbe
   let bestScore = -Infinity;
   let r = rng;
   for (const aim of candidates) {
-    const { target } = attackTarget(attacker.pos, team, aim);
+    const { target, isTip } = attackTarget(hitPos, team, aim);
     const nearest = Math.min(...defenders.map((d) => Math.hypot(d.pos.x - target.x, d.pos.z - target.z)));
+    const crossX = netCrossingX(hitPos, target);
+    const intoBlock = !isTip && blockers.some((b) => Math.abs(crossX - b.pos.x) <= block.halfWidth);
     const noise = rngRange(r, 0, AIM_SCORE_NOISE);
     r = noise.state;
-    const score = (Number.isFinite(nearest) ? nearest : 0) + noise.value;
+    const score = (intoBlock || !Number.isFinite(nearest) ? 0 : nearest) + noise.value;
     if (score > bestScore) {
       best = aim;
       bestScore = score;

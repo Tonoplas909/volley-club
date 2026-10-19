@@ -231,6 +231,21 @@ describe('chooseAttackAim', () => {
     }
   });
 
+  it('évite les mains du contreur : la frappe franchit le filet hors de sa portée latérale', () => {
+    // Contreur de l'équipe 1 au filet en x = 0,8 ; défenseur à 4 m (pas de feinte).
+    const s = attackState([{ x: 0.8, z: 0.5 }, { x: -2.5, z: 4 }]);
+    const from = s.players[1]!.pos;
+    let rng = 77;
+    for (let i = 0; i < 20; i++) {
+      const choice = chooseAttackAim(s, 1, rng);
+      rng = choice.rng;
+      const { target, isTip } = attackTarget(from, 0, choice.aim);
+      expect(isTip).toBe(false);
+      const crossX = from.x + (Math.abs(from.z) / (Math.abs(from.z) + Math.abs(target.z))) * (target.x - from.x);
+      expect(Math.abs(crossX - 0.8)).toBeGreaterThan(TUNING.touch.block.halfWidth);
+    }
+  });
+
   it('est déterministe et fait avancer le rng', () => {
     const s = attackState([{ x: -3, z: 4 }, { x: -2.5, z: 6 }]);
     expect(chooseAttackAim(s, 1, 42)).toEqual(chooseAttackAim(s, 1, 42));
@@ -318,6 +333,29 @@ describe('cerveau', () => {
     expect(events.filter((e) => e.type === 'touch' || e.type === 'whiff')).toEqual([
       expect.objectContaining({ type: 'touch', playerId: serverId, gesture: 'serve' }),
     ]);
+  });
+
+  it("course d'élan : partant de 3,5 m, l'attaquant désigné touche la passe (projection de l'élan sur le point de frappe)", () => {
+    for (const seed of [1, 2, 3, 4, 5]) {
+      // Passe du joueur 1 vers le couloir 0 ; l'attaquant (joueur 0) attend en position d'élan.
+      const traj = launchTo({ x: 0, y: 2.2, z: -1 }, { x: -2, y: R, z: -1 }, TUNING.touch.flightTime.set, 300);
+      let s = rallyState(
+        traj,
+        { playerId: 1, team: 0, gesture: 'set', tick: 300 },
+        { touchingTeam: 0, touches: 2, lastToucherId: 1 },
+      );
+      s.players[0]!.pos = { x: -2, y: 0, z: -3.5 };
+      s.players[1]!.pos = { x: 0, y: 0, z: -1 };
+      const brain = createBrain(0, 'hard', seed);
+      const isAttack = (e: GameEvent) => (e.type === 'touch' || e.type === 'whiff') && e.gesture === 'attack';
+      let attack: GameEvent | undefined;
+      for (let i = 0; i < 150 && !attack; i++) {
+        s = step(s, s.players.map((p) => (p.id === 0 ? brain.think(s) : NEUTRAL_COMMAND)));
+        attack = s.events.find(isAttack);
+      }
+      expect(attack).toMatchObject({ type: 'touch', playerId: 0 });
+      if (attack?.type === 'touch') expect(attack.quality).toBeGreaterThanOrEqual(TUNING.touch.tiers.good);
+    }
   });
 
   it('intégration : 4 cerveaux normal, 3000 steps sans exception, au moins une touche hors service', () => {

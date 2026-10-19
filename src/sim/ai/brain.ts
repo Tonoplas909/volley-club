@@ -3,6 +3,7 @@
  * Il a sa propre mémoire (réaction, erreurs tirées, appui déjà fait) et son propre rng seedé.
  */
 import { currentServerId } from '../court';
+import { jumpApexTicks } from '../player';
 import { rngGaussian, rngInDisc } from '../rng';
 import { gestureFor, idealPressTick } from '../touch';
 import { TUNING } from '../tuning';
@@ -41,6 +42,23 @@ function moveToward(from: Vec2, to: Vec2): Vec2 {
   if (d < ARRIVE_RADIUS) return { x: 0, z: 0 };
   const speed = d < SLOW_RADIUS ? d / SLOW_RADIUS : 1;
   return { x: (dx / d) * speed, z: (dz / d) * speed };
+}
+
+/**
+ * Course d'élan de l'attaquant : le saut conserve l'élan, et la main au sommet du saut est à
+ * pos + vel · (montée du saut). On règle donc une vitesse constante telle que cette position projetée
+ * tombe sur le point de frappe à l'appui prévu : v = (frappe − pos) / (temps restant + montée).
+ * Renvoie null si l'appui prévu est déjà passé.
+ */
+function approachMove(from: Vec2, hit: Vec2, ticksToPress: number): Vec2 | null {
+  if (ticksToPress < 1) return null;
+  const seconds = (ticksToPress + jumpApexTicks()) / TUNING.tickRate;
+  const move = {
+    x: (hit.x - from.x) / seconds / TUNING.player.maxSpeed,
+    z: (hit.z - from.z) / seconds / TUNING.player.maxSpeed,
+  };
+  const n = Math.hypot(move.x, move.z);
+  return n > 1 ? { x: move.x / n, z: move.z / n } : move;
 }
 
 export function createBrain(playerId: number, difficulty: Difficulty, seed: number): Brain {
@@ -108,6 +126,14 @@ export function createBrain(playerId: number, difficulty: Difficulty, seed: numb
     return { aim: choice.aim, press: true };
   }
 
+  /** Attaquant désigné après la passe de son équipe : il prend son élan vers le point de frappe. */
+  function isAttackApproach(state: GameState, player: PlayerState): boolean {
+    const { rally } = state;
+    if (state.phase !== 'rally' || state.ball.mode !== 'flying') return false;
+    if (rally.touchingTeam !== player.team || rally.touches !== 2) return false;
+    return whoTakesBall(state, player.team) === player.id && assignRoles(state)[player.id] === 'attacker';
+  }
+
   return {
     think(state: GameState): Command {
       const player = state.players.find((p) => p.id === playerId);
@@ -127,7 +153,12 @@ export function createBrain(playerId: number, difficulty: Difficulty, seed: numb
       if (reacted) target = targetPosition(state, playerId);
       const here = { x: player.pos.x, z: player.pos.z };
       const aimPoint = target ? { x: target.x + error.x, z: target.z + error.z } : here;
-      const move = moveToward(here, aimPoint);
+      let move = moveToward(here, aimPoint);
+      if (reacted && target && pressedKey !== key && isAttackApproach(state, player)) {
+        const ideal = idealPressTick(state, playerId, 'attack');
+        const approach = ideal === null ? null : approachMove(here, aimPoint, ideal + timingNoise - state.tick);
+        if (approach) move = approach;
+      }
 
       let decision = { aim: ZERO, press: false };
       const isServer = state.phase === 'serve' && currentServerId(state) === playerId;
