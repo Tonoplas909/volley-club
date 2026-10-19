@@ -38,4 +38,5 @@ PAUSE demandée par l'utilisateur à la fin de la vague B. Prochaine tâche : Ta
 ## Reprise depuis une autre machine
 - Branche de travail : `feat/v1`. Vagues A et B terminées et revues (tâches 1, 2, 3, 4, 9).
 - L'espace `.superpowers/sdd/` est ignoré par git : les fiches de tâche se régénèrent depuis le plan (section « ### Tâche N : » + « Contraintes globales »).
-- Reprendre à la vague C : tâche 5 (opus) puis tâche 8 (sonnet), puis 6, 7, 10, 11 et la revue finale.
+- Reprendre à la vague C : tâche 5 (opus) puis tâche 8 (sonnet), puis 6 (opus), 7 (opus), 10 (sonnet), 11 (opus) et la revue finale (opus). Les relecteurs de chaque tâche sont sur sonnet.
+- Méthode complète (sous-agents, modèles, revue, commandes de génération des fiches, précisions à transmettre) : voir `CLAUDE.md` à la racine.
