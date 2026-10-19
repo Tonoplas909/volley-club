@@ -132,7 +132,7 @@ function start(canvas: HTMLCanvasElement, ui: HTMLElement): void {
   });
   window.addEventListener('blur', pauseNow);
 
-  const emptyOverlay: Overlay = { humanId: null, assistZone: null, timingRing: null, events: [], debug: null };
+  const emptyOverlay: Overlay = { humanId: null, assistZone: null, timingRing: null, events: [], debug: null, fx: { timeScale: 1, shake: { x: 0, y: 0 } } };
   let lastNow = performance.now();
 
   function frame(now: number): void {
@@ -182,6 +182,7 @@ function start(canvas: HTMLCanvasElement, ui: HTMLElement): void {
       timingRing: timingRing(curr, humanId, frameInput.command),
       events: s.events,
       debug: s.debug ? { lastQuality: s.lastQuality, roles: assignRoles(curr) } : null,
+      fx: { timeScale: 1, shake: { x: 0, y: 0 } },
     };
     renderer.render(s.prev, curr, s.acc / STEP_DT, overlay);
     s.events = [];

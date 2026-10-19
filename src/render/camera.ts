@@ -11,10 +11,16 @@ const LOOK_Y = 1;
 const LOOK_Z = 2;
 /** Vitesse de lissage exponentiel (1/s). */
 const SMOOTHING = 4;
+/** Hauteur minimale de la caméra (m) : la vibration ne la fait jamais passer sous le sol (spec § 5.3). */
+const MIN_CAM_HEIGHT = 1;
 
 export interface CameraRig {
   camera: THREE.PerspectiveCamera;
-  update(ballX: number, dt: number): void;
+  /**
+   * `dt` est le temps réel (le lissage ne se fige pas pendant un gel). `shake` est un décalage
+   * en x et y ajouté à la position après lissage ; le point visé n'est pas touché.
+   */
+  update(ballX: number, dt: number, shake: { x: number; y: number }): void;
   resize(aspect: number): void;
 }
 
@@ -35,7 +41,7 @@ export function createCameraRig(aspect: number): CameraRig {
 
   return {
     camera,
-    update(ballX, dt) {
+    update(ballX, dt, shake) {
       targetPos.set(ballX * CAM_BALL_FACTOR, CAM_HEIGHT, CAM_Z);
       targetLook.set(ballX * LOOK_BALL_FACTOR, LOOK_Y, LOOK_Z);
       if (first) {
@@ -47,7 +53,11 @@ export function createCameraRig(aspect: number): CameraRig {
         position.lerp(targetPos, k);
         look.lerp(targetLook, k);
       }
-      apply();
+      // Le décalage s'ajoute après le lissage : la position lissée reste celle sans vibration.
+      // La caméra est à y = 7 et la vibration vaut au plus quelques dizaines de cm ; le plancher
+      // protège quand même d'un réglage extrême.
+      camera.position.set(position.x + shake.x, Math.max(MIN_CAM_HEIGHT, position.y + shake.y), position.z);
+      camera.lookAt(look);
     },
     resize(newAspect) {
       camera.aspect = newAspect;

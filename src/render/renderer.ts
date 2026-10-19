@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { GameEvent, GameState, PlayerRole, Vec2, Vec3 } from '../sim/types';
 import { createBall } from './ball';
 import { createCameraRig } from './camera';
+import type { FxFrame } from '../fx/fx';
 import { createDebug } from './debug';
 import { createMarkers } from './markers';
 import { createPlayers } from './players';
@@ -13,6 +14,8 @@ export type Overlay = {
   timingRing: number | null;       // 1 = anneau ouvert … 0 = instant idéal ; null = masqué
   events: GameEvent[];             // événements accumulés depuis la frame précédente
   debug: { lastQuality: { placement: number; timing: number; quality: number } | null; roles: PlayerRole[] | null } | null;
+  /** Facteur de temps de jeu (gel, ralenti) et décalage de vibration de la caméra. */
+  fx: FxFrame;
 };
 
 export interface Renderer {
@@ -57,16 +60,19 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       const now = performance.now();
       const dt = last === null ? 0 : Math.min((now - last) / 1000, MAX_FRAME_DT);
       last = now;
-      time += dt;
+      // Temps de jeu : les animations se figent pendant un gel et ralentissent pendant un ralenti.
+      // La caméra, elle, se lisse en temps réel (dt) pour ne jamais se figer.
+      const dtGame = dt * overlay.fx.timeScale;
+      time += dtGame;
 
       ballPos.x = prev.ball.pos.x + (curr.ball.pos.x - prev.ball.pos.x) * alpha;
       ballPos.y = prev.ball.pos.y + (curr.ball.pos.y - prev.ball.pos.y) * alpha;
       ballPos.z = prev.ball.pos.z + (curr.ball.pos.z - prev.ball.pos.z) * alpha;
 
       players.onEvents(overlay.events, time);
-      players.update(prev, curr, alpha, ballPos, overlay.humanId, dt, time);
+      players.update(prev, curr, alpha, ballPos, overlay.humanId, dtGame, time);
       markers.onEvents(overlay.events, time, players.positionOf);
-      ball.update(ballPos, curr.ball.mode === 'flying', dt);
+      ball.update(ballPos, curr.ball.mode === 'flying', dtGame);
       markers.update(
         curr,
         overlay,
@@ -75,7 +81,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
         players.positionOf,
       );
       debug.update(curr, overlay.debug, players.positionOf);
-      rig.update(ballPos.x, dt);
+      rig.update(ballPos.x, dt, overlay.fx.shake);
       gl.render(scene, rig.camera);
     },
     resize(width, height) {
