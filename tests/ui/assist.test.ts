@@ -108,7 +108,7 @@ describe('applyMagnetism', () => {
     const out = applyMagnetism(at(1), HUMAN, withMove({ x: 0, z: 1 }));
     expect(norm(out.move)).toBeCloseTo(1);
     const diag = applyMagnetism(at(1), HUMAN, withMove({ x: Math.SQRT1_2, z: Math.SQRT1_2 }));
-    expect(norm(diag.move)).toBeLessThanOrEqual(1 + 1e-9);
+    expect(norm(diag.move)).toBeCloseTo(1);
   });
 
   it('visée intacte : aim et actionPressed ne changent jamais (point de vigilance 4)', () => {
@@ -141,9 +141,15 @@ describe('applyMagnetism', () => {
     const still = moved(s, HUMAN, { x: c.x, z: c.z - 1 });
     expect(applyMagnetism(still, HUMAN, NEUTRAL).move.z).toBeGreaterThan(0);
     // Lancé vers le contact : sa position projetée au sommet du saut y tombe, donc zone morte.
-    const v = TUNING.player.maxSpeed;
+    // v = 2 m/s : à l'arrêt il est à 0,8 m du contact, dans la bande active (≤ magnetRadius).
+    const v = 2;
     const lead = jumpApexTicks() / TUNING.tickRate;
-    const projectedOnContact = moved(s, HUMAN, { x: c.x, z: c.z - v * lead }, { x: 0, z: v });
+    expect(v * lead).toBeLessThan(TUNING.assist.magnetRadius);
+    expect(v * lead).toBeGreaterThan(TUNING.assist.magnetDeadZone);
+    const start = { x: c.x, z: c.z - v * lead };
+    const stopped = applyMagnetism(moved(s, HUMAN, start), HUMAN, NEUTRAL);
+    expect(stopped.move.z).toBeGreaterThan(0);
+    const projectedOnContact = moved(s, HUMAN, start, { x: 0, z: v });
     expect(applyMagnetism(projectedOnContact, HUMAN, NEUTRAL)).toBe(NEUTRAL);
   });
 
