@@ -30,7 +30,7 @@ npm run dev
 
 Le développement du plan se fait **par sous-agents**. Le contrôleur (la session principale) n'écrit pas le code lui-même : il coordonne, relit et tient le journal.
 
-1. **Skill** : utiliser `superpowers:subagent-driven-development` pour exécuter le plan.
+1. **Skill** : utiliser le skill `subagent-driven-development` pour exécuter le plan. Il est **installé dans le projet** (`.claude/skills/subagent-driven-development/`), avec ses dépendances `requesting-code-review` (grille de la revue finale) et `finishing-a-development-branch` (étape de clôture). Ces skills viennent de [superpowers](https://github.com/obra/superpowers), sous licence MIT (`.claude/skills/LICENSE-superpowers`). Si le plugin superpowers est aussi installé, on utilise la copie du projet : son script `task-brief` est adapté au plan en français.
 2. **Branche** : travailler sur `feat/v1`, jamais directement sur `main`. Le merge dans `main` se décide avec l'utilisateur.
 3. **Une tâche = un agent implémenteur**, avec le modèle indiqué dans le tableau ci-dessous, toujours précisé explicitement (sinon l'agent hérite du modèle le plus cher).
 4. **Ordre** : les implémenteurs passent un par un, jamais deux en parallèle dans le même checkout. On peut en revanche lancer la revue de la tâche N en arrière-plan pendant que la tâche N+1 s'implémente.
@@ -67,16 +67,25 @@ Le principe du tableau :
 
 ### Préparer les fiches de tâche
 
-L'espace de travail `.superpowers/sdd/` est ignoré par git. Le script `task-brief` du skill cherche des titres « Task N », alors que le plan utilise « ### Tâche N : ». On régénère donc les fiches ainsi :
+L'espace de travail `.superpowers/sdd/` est ignoré par git, donc il faut le recréer sur une nouvelle machine. Le script `task-brief` du projet reconnaît les titres « ### Tâche N : ».
 
 ```bash
-W=.superpowers/sdd/2026-10-19-volley-club-v1; P=docs/superpowers/plans/2026-10-19-volley-club-v1.md; mkdir -p $W
-awk '/^---$/{exit} {print}' $P > $W/global.md
-for n in 5 6 7 8 10 11; do awk -v n="$n" 'BEGIN{p=0} /^### /{p = ($0 ~ "^### Tâche " n " :")} /^---$/{if(p) exit} p{print}' $P > $W/task-$n-brief.md; done
+S=.claude/skills/subagent-driven-development/scripts
+P=docs/superpowers/plans/2026-10-19-volley-club-v1.md
+W=$(bash $S/sdd-workspace $P)                       # crée et affiche l'espace du plan
 cp docs/superpowers/progress/2026-10-19-volley-club-v1-ledger.md $W/progress.md
+awk '/^---$/{exit} {print}' $P > $W/global.md       # contraintes globales du plan
+bash $S/task-brief $P 5                             # → $W/task-5-brief.md
+bash $S/review-package $P BASE HEAD                 # paquet de diff pour le relecteur
 ```
 
-Chaque implémenteur reçoit : le chemin de sa fiche (et de `global.md`), les précisions du contrôleur, le chemin de son fichier de rapport (`$W/task-N-report.md`) et le format de rapport court. Les paquets de revue se génèrent avec le script `review-package` du skill (`PLAN BASE HEAD`).
+Chaque implémenteur reçoit :
+- le chemin de sa fiche et de `global.md` ;
+- les précisions du contrôleur ;
+- le chemin de son fichier de rapport (`$W/task-N-report.md`) ;
+- le format de rapport court.
+
+À la fin de chaque vague, on recopie `$W/progress.md` dans `docs/superpowers/progress/` pour que le journal soit versionné.
 
 ### Précisions à transmettre aux prochaines tâches
 
