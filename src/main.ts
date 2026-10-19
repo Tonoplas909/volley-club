@@ -25,7 +25,7 @@ const DEFAULT_CONFIG: MatchConfig = {
   playersPerTeam: 2,
   humanPlayerId: 0,
   difficulty: { teammate: 'normal', opponents: 'normal' },
-  assistZone: true,
+  assistZone: false,
   seed: 1,
 };
 

@@ -63,7 +63,7 @@ export function createMenu(root: HTMLElement, onPlay: (config: MatchConfig) => v
 
   const assist = el('input');
   assist.type = 'checkbox';
-  assist.checked = true;
+  assist.checked = false;
   const assistField = el('label', 'field check');
   assistField.append(assist, el('span', undefined, 'Zone de placement conseillée'));
 

@@ -261,7 +261,7 @@ Pour la passe, la cible idéale vise le partenaire désigné attaquant (voir § 
 - **Ombre du ballon :** projetée verticalement au sol pour lire la hauteur.
 - **Anneau de timing :** un anneau autour du personnage contrôlé, qui se resserre et se ferme à l'instant idéal du geste attendu. Il n'apparaît que si un geste est possible et que le joueur est à portée.
 - **Retour textuel :** « Parfait / Bien / Moyen / Raté » flottant au-dessus du joueur après chaque touche.
-- **Zone conseillée (désactivable) :** une zone fantôme au sol à la position que le rôle actuel du joueur demande (§ 7.2).
+- **Zone conseillée (option, désactivée par défaut) :** une zone fantôme au sol à la position que le rôle actuel du joueur demande (§ 7.2).
 
 ## 7. IA
 
