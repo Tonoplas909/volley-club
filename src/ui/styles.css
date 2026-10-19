@@ -1,0 +1,143 @@
+:root {
+  --ink: #fff;
+  --panel: rgba(14, 22, 38, 0.82);
+  --accent: #ffd23f;
+  --muted: #b9c4d6;
+  --line: rgba(255, 255, 255, 0.18);
+}
+
+#ui {
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color: var(--ink);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+[hidden] { display: none !important; }
+
+.panel {
+  pointer-events: auto;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  box-sizing: border-box;
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  padding: 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  backdrop-filter: blur(6px);
+}
+
+.menu h1 { margin: 0 0 4px; font-size: 40px; text-align: center; color: var(--accent); }
+.menu h2 { margin: 0 0 6px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+
+.field { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+.field-label { color: var(--muted); }
+.field.check { flex-direction: row; align-items: center; gap: 8px; }
+.field.check input { width: 18px; height: 18px; accent-color: var(--accent); }
+
+select {
+  font: inherit;
+  padding: 8px 10px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+select option { color: #111; }
+
+button {
+  pointer-events: auto;
+  font: inherit;
+  font-weight: 600;
+  padding: 10px 22px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+}
+button:hover { background: rgba(255, 255, 255, 0.24); }
+button.primary { color: #1a1a1a; background: var(--accent); border-color: var(--accent); }
+button.primary:hover { filter: brightness(1.08); }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.controls { border-top: 1px solid var(--line); padding-top: 12px; }
+.controls dl { margin: 0; display: grid; grid-template-columns: 1fr; gap: 2px 12px; font-size: 13px; }
+.controls dt { color: var(--muted); margin-top: 6px; }
+.controls dd { margin: 0; }
+@media (min-width: 420px) {
+  .controls dl { grid-template-columns: auto 1fr; }
+  .controls dt { margin-top: 0; }
+}
+
+/* HUD */
+.hud { position: absolute; inset: 0; }
+
+.board {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 24px;
+  padding: 8px 18px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  white-space: nowrap;
+}
+.side { display: flex; align-items: center; gap: 10px; }
+.side.right { justify-content: flex-end; }
+.team { font-size: 14px; color: var(--muted); }
+.points { font-size: 34px; font-weight: 800; min-width: 1.2ch; text-align: center; font-variant-numeric: tabular-nums; }
+.serve-dot { color: var(--accent); font-size: 14px; visibility: hidden; }
+.serve-dot.on { visibility: visible; }
+.sets { grid-column: 1 / -1; text-align: center; font-size: 13px; color: var(--muted); }
+
+.message, .pause {
+  position: absolute;
+  top: 38%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  box-sizing: border-box;
+  max-width: calc(100vw - 32px);
+  padding: 18px 32px;
+  text-align: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.pause { top: 50%; pointer-events: auto; }
+.message-title { font-size: clamp(24px, 5vw, 40px); font-weight: 800; color: var(--accent); }
+.message-sub { margin-top: 6px; font-size: 16px; color: var(--muted); }
+.buttons { margin-top: 16px; display: flex; gap: 12px; justify-content: center; }
+
+.debug {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-family: ui-monospace, monospace;
+  background: var(--panel);
+  border-radius: 6px;
+}
+
+.unsupported {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  text-align: center;
+  font-size: 22px;
+}
