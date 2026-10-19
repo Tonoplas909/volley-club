@@ -27,6 +27,8 @@ export const TUNING = {
     easy:   { reactionTicks: 24, positionError: 0.6, timingNoiseTicks: 7.2 },
     normal: { reactionTicks: 15, positionError: 0.3, timingNoiseTicks: 4.2 },
     hard:   { reactionTicks: 9,  positionError: 0.1, timingNoiseTicks: 2.1 },
+    /** Le serveur IA lance le ballon ce nombre de ticks après le début de la phase serve. */
+    serveDelayTicks: 30,
   },
 } as const;
 
