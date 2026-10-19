@@ -205,20 +205,28 @@ export function qualityTier(q: number): QualityTier {
 }
 
 /**
+ * Position xz du joueur telle que la simulation la juge pour un appui : sa position actuelle, ou, pour
+ * l'attaque, sa position projetée au sommet du saut (pos + vel · montée). null = joueur inconnu.
+ */
+export function pressPosition(state: GameState, playerId: number, gesture: Gesture): Vec2 | null {
+  const player = findPlayer(state, playerId);
+  if (!player) return null;
+  const lead = gesture === 'attack' ? jumpApexTicks() / TUNING.tickRate : 0;
+  return { x: player.pos.x + player.vel.x * lead, z: player.pos.z + player.vel.z * lead };
+}
+
+/**
  * Distance entre le joueur et le point de contact idéal, telle que la simulation la juge.
- * Attaque : depuis la position projetée au sommet du saut (pos + vel · montée). Service et contre : 0
+ * Attaque : depuis la position projetée au sommet du saut (pressPosition). Service et contre : 0
  * (le contre vérifie son placement à l'interception). null = joueur inconnu ou pas de point de contact.
  */
 export function pressDistance(state: GameState, playerId: number, gesture: Gesture): number | null {
-  const player = findPlayer(state, playerId);
-  if (!player) return null;
+  const at = pressPosition(state, playerId, gesture);
+  if (!at) return null;
   if (gesture === 'serve' || gesture === 'block') return 0;
   const contact = contactPoint(state, playerId, gesture);
   if (!contact) return null;
-  const lead = gesture === 'attack' ? jumpApexTicks() / TUNING.tickRate : 0;
-  const x = player.pos.x + player.vel.x * lead;
-  const z = player.pos.z + player.vel.z * lead;
-  return Math.hypot(contact.x - x, contact.z - z);
+  return Math.hypot(contact.x - at.x, contact.z - at.z);
 }
 
 /** Évalue un appui au tick courant. null = raté (hors portée ou hors fenêtre). */
