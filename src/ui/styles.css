@@ -270,8 +270,8 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px s
   position: absolute;
   right: 16px;
   bottom: 16px;
-  width: 180px;
-  height: 100px;
+  width: 100px;
+  height: 180px;
   background: var(--panel-bg);
   border: 2px solid var(--panel-edge);
   border-radius: 14px;

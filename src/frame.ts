@@ -115,7 +115,9 @@ export function advanceFrame(s: Session, frameInput: InputFrame, frameDt: number
   } else {
     if (frameInput.command.actionPressed) s.actionLatch = true;
     fx = s.fx.advance(frameDt);
-    const timeScale = fx.timeScale * (s.debug ? DEBUG_TIME_SCALE : 1);
+    // Le ralenti debug s'applique aussi au rendu (animations), pas seulement à la simulation.
+    if (s.debug) fx = { ...fx, timeScale: fx.timeScale * DEBUG_TIME_SCALE };
+    const timeScale = fx.timeScale;
     const { steps, acc } = consumeAccumulator(s.acc, frameDt, timeScale);
     s.acc = acc;
     for (let i = 0; i < steps && s.curr.phase !== 'matchEnd'; i++) playStep(s, frameInput, now);

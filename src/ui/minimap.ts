@@ -8,9 +8,9 @@ export interface Minimap {
   dispose(): void;
 }
 
-const WIDTH = 180;
-const HEIGHT = 100;
-const PADDING = 6;
+const WIDTH = 100;
+const HEIGHT = 180;
+const PADDING = 10; // >= HUMAN_RADIUS + demi-trait : aucune pastille coupée
 const SIZE: MinimapSize = { width: WIDTH, height: HEIGHT, padding: PADDING };
 const PLAYER_RADIUS = 6;
 const HUMAN_RADIUS = 8.5;

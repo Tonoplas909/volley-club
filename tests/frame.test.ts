@@ -105,6 +105,16 @@ describe('advanceFrame : gel et pause (point de vigilance 1)', () => {
   });
 });
 
+describe('advanceFrame : ralenti debug', () => {
+  it('le facteur 0,25 de F1 est transmis au rendu via overlay.fx.timeScale', () => {
+    const s = newSession(config(1), OPTIONS);
+    expect(advanceFrame(s, input(), 0.016, 0.016).overlay.fx.timeScale).toBe(1);
+    const out = advanceFrame(s, input({}, { debugPressed: true }), 0.016, 0.032);
+    expect(out.overlay.fx.timeScale).toBeCloseTo(0.25);
+    expect(advanceFrame(s, input({}, { debugPressed: true }), 0.016, 0.048).overlay.fx.timeScale).toBe(1);
+  });
+});
+
 describe('advanceFrame : nouveau match (point de vigilance 2)', () => {
   it('« Rejouer » pendant un ralenti : la première frame est à vitesse normale, sans vibration', () => {
     const { s, now } = atHumanServe();

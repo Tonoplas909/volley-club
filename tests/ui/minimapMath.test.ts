@@ -35,4 +35,22 @@ describe('courtToMinimap', () => {
     expect(courtToMinimap({ x: -4, z: 0 }, wide).x).toBeCloseTo(90);
     expect(courtToMinimap({ x: 0, z: 0 }, wide).y).toBeCloseTo(200);
   });
+
+  it('borne les positions aux limites de déplacement : aucune pastille coupée ni hors canvas', () => {
+    const portrait: MinimapSize = { width: 100, height: 180, padding: 10 };
+    for (const pos of [{ x: 99, z: 99 }, { x: -99, z: -99 }, { x: 6, z: 11 }, { x: -6, z: -11 }]) {
+      const p = courtToMinimap(pos, portrait);
+      expect(p.x).toBeGreaterThanOrEqual(10);
+      expect(p.x).toBeLessThanOrEqual(90);
+      expect(p.y).toBeGreaterThanOrEqual(10);
+      expect(p.y).toBeLessThanOrEqual(170);
+    }
+    expect(courtToMinimap({ x: 0, z: 99 }, portrait)).toEqual(courtToMinimap({ x: 0, z: 11 }, portrait));
+  });
+
+  it('en portrait 100×180, le terrain 8×16 m remplit la hauteur', () => {
+    const portrait: MinimapSize = { width: 100, height: 180, padding: 10 };
+    expect(courtToMinimap({ x: 0, z: 8 }, portrait).y).toBeCloseTo(10);
+    expect(courtToMinimap({ x: 0, z: -8 }, portrait).y).toBeCloseTo(170);
+  });
 });
