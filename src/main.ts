@@ -107,7 +107,7 @@ function start(canvas: HTMLCanvasElement, ui: HTMLElement): void {
       menu.show();
     },
   });
-  const menu = createMenu(ui, (config) => startMatch(config));
+  const menu = createMenu(ui, (config, _options) => startMatch(config));
 
   function startMatch(config: MatchConfig): void {
     session = newSession(config);
@@ -186,7 +186,10 @@ function start(canvas: HTMLCanvasElement, ui: HTMLElement): void {
     };
     renderer.render(s.prev, curr, s.acc / STEP_DT, overlay);
     s.events = [];
-    hud.update(curr, { paused: s.paused, debug: s.debug, lastTier: s.lastTier });
+    // Vue neutre : la tâche 8 branche expected, device et lastPress.
+    hud.update(curr, {
+      paused: s.paused, debug: s.debug, expected: null, device: 'keyboard', lastPress: null, now: now / 1000,
+    }, humanId);
   }
   requestAnimationFrame(frame);
 }

@@ -1,15 +1,24 @@
-import type { GameState, QualityTier } from '../sim/types';
+import type { GameState, Gesture } from '../sim/types';
+import { createGestureBanner } from './gestureBanner';
+import { createMinimap } from './minimap';
+import { createPressCard, type LastPressView } from './pressCard';
 import { matchEndText, pointReasonText, setEndText, tierText } from './texts';
 
 export interface HudView {
   paused: boolean;
   debug: boolean;
-  /** Dernière touche de l'humain (affichée en debug). */
-  lastTier: QualityTier | null;
+  /** Geste attendu de l'humain (null = rien à jouer). */
+  expected: { gesture: Gesture; inReach: boolean; servePhase: 'toss' | 'strike' | null } | null;
+  /** Périphérique de la dernière entrée (icône de touche du bandeau). */
+  device: 'keyboard' | 'gamepad';
+  /** Dernier appui de l'humain ; `at` en secondes réelles (performance.now() / 1000). */
+  lastPress: LastPressView | null;
+  /** Secondes réelles. */
+  now: number;
 }
 
 export interface Hud {
-  update(state: GameState, view: HudView): void;
+  update(state: GameState, view: HudView, humanId: number | null): void;
   hide(): void;
   dispose(): void;
 }
@@ -39,9 +48,9 @@ export function createHud(root: HTMLElement, actions: HudActions): Hud {
   container.hidden = true;
 
   const board = el('div', 'board');
-  const names: [HTMLElement, HTMLElement] = [el('span', 'team', 'Votre équipe'), el('span', 'team', 'Adversaires')];
+  const names: [HTMLElement, HTMLElement] = [el('span', 'team team0', 'Votre équipe'), el('span', 'team team1', 'Adversaires')];
   const points: [HTMLElement, HTMLElement] = [el('span', 'points'), el('span', 'points')];
-  const serving: [HTMLElement, HTMLElement] = [el('span', 'serve-dot', '●'), el('span', 'serve-dot', '●')];
+  const serving: [HTMLElement, HTMLElement] = [el('span', 'serve-dot'), el('span', 'serve-dot')];
   serving[0].title = 'Au service';
   serving[1].title = 'Au service';
   const left = el('div', 'side left');
@@ -50,6 +59,9 @@ export function createHud(root: HTMLElement, actions: HudActions): Hud {
   right.append(points[1], names[1], serving[1]);
   board.append(left, right);
   const sets = el('div', 'sets');
+  const setPips: [HTMLElement, HTMLElement] = [el('span', 'pips'), el('span', 'pips')];
+  const setInfo = el('span', 'set-info');
+  sets.append(setPips[0], setInfo, setPips[1]);
   board.append(sets);
 
   const message = el('div', 'message');
@@ -73,19 +85,28 @@ export function createHud(root: HTMLElement, actions: HudActions): Hud {
 
   container.append(board, message, pause, debug);
   root.append(container);
+  const banner = createGestureBanner(container);
+  const card = createPressCard(container);
+  const minimap = createMinimap(container);
 
   replay.addEventListener('click', actions.onReplay);
   menu.addEventListener('click', actions.onMenu);
 
   return {
-    update(state, view): void {
+    update(state, view, humanId): void {
       container.hidden = false;
       const { score } = state;
       setText(points[0], String(score.points[0]));
       setText(points[1], String(score.points[1]));
       serving[0].classList.toggle('on', score.servingTeam === 0);
       serving[1].classList.toggle('on', score.servingTeam === 1);
-      setText(sets, `Sets ${score.sets[0]} – ${score.sets[1]} · Set ${score.setIndex + 1}`);
+      setText(setInfo, `Set ${score.setIndex + 1}`);
+      for (const t of [0, 1] as const) {
+        const count = score.sets[t];
+        if (setPips[t].childElementCount !== count) {
+          setPips[t].replaceChildren(...Array.from({ length: count }, () => el('span', `pip team${t}`)));
+        }
+      }
 
       let heading = '';
       let detail = '';
@@ -110,9 +131,12 @@ export function createHud(root: HTMLElement, actions: HudActions): Hud {
       pause.hidden = !view.paused;
       debug.hidden = !view.debug;
       if (view.debug) {
-        const touch = view.lastTier === null ? '—' : tierText(view.lastTier);
+        const touch = view.lastPress === null ? '—' : tierText(view.lastPress.tier);
         setText(debug, `Debug · ralenti ×0,25 · dernière touche : ${touch}`);
       }
+      banner.update(view.paused ? null : view.expected, view.device);
+      card.update(view.lastPress, view.now);
+      minimap.update(state, humanId);
     },
     hide(): void {
       container.hidden = true;
@@ -120,6 +144,9 @@ export function createHud(root: HTMLElement, actions: HudActions): Hud {
     dispose(): void {
       replay.removeEventListener('click', actions.onReplay);
       menu.removeEventListener('click', actions.onMenu);
+      banner.dispose();
+      card.dispose();
+      minimap.dispose();
       container.remove();
     },
   };

@@ -48,8 +48,8 @@ function difficultySelect(initial: Difficulty): HTMLSelectElement {
   return select;
 }
 
-/** Menu de démarrage (HTML dans `#ui`). `onPlay` reçoit la configuration du match choisie. */
-export function createMenu(root: HTMLElement, onPlay: (config: MatchConfig) => void): Menu {
+/** Menu de démarrage (HTML dans `#ui`). `onPlay` reçoit la configuration du match choisie et les options (aimantation). */
+export function createMenu(root: HTMLElement, onPlay: (config: MatchConfig, options: { magnet: boolean }) => void): Menu {
   const panel = el('div', 'panel menu');
 
   const formatSelect = el('select');
@@ -67,6 +67,12 @@ export function createMenu(root: HTMLElement, onPlay: (config: MatchConfig) => v
   const assistField = el('label', 'field check');
   assistField.append(assist, el('span', undefined, 'Zone de placement conseillée'));
 
+  const magnet = el('input');
+  magnet.type = 'checkbox';
+  magnet.checked = true;
+  const magnetField = el('label', 'field check');
+  magnetField.append(magnet, el('span', undefined, 'Aimantation'));
+
   const play = el('button', 'primary', 'Jouer');
   play.type = 'button';
 
@@ -82,6 +88,7 @@ export function createMenu(root: HTMLElement, onPlay: (config: MatchConfig) => v
     field('Niveau du coéquipier', teammateSelect),
     field('Niveau des adversaires', opponentsSelect),
     assistField,
+    magnetField,
     play,
     controls,
   );
@@ -98,7 +105,7 @@ export function createMenu(root: HTMLElement, onPlay: (config: MatchConfig) => v
       },
       assistZone: assist.checked,
       seed: Date.now() >>> 0,
-    });
+    }, { magnet: magnet.checked });
   };
   play.addEventListener('click', onClick);
 
