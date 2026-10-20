@@ -53,3 +53,11 @@ Task 4: minor (deferred): au contre, l'attraction vers (x, 0) dilue l'aide laté
 Task 4: fix round 1/5 (1 addressed, 0 open — test d'attaque vacant ; commits 4480a17..95daf32)
 Task 4: complete (commits a4a629d..95daf32, review clean)
 VAGUE A terminée. PAUSE : feu vert utilisateur requis pour la vague B (tâches 5, 6, 7).
+Task 5: complete (commit 1892bb1, temps de jeu du rendu et vibration de caméra) — contrôle visuel timeScale 0 non fait.
+Task 6: complete (commit e90d8e9, style cartoon) — minor : popScale/redessin des textes sans test ; debug.ts non redessiné au chargement de la police ; libellés flottants « PARFAIT ! » vs HUD « Parfait ».
+Task 7: complete (commit 29a689f, ATH, menu, Fredoka) — Hud.update(state, view, humanId) à 3 arguments ; bandeau in-reach non capturé ; mise en page ≤ 760 px non testée.
+Task 8: complete (commit 3be4803, src/frame.ts pur + câblage main.ts) — 7 tests frame.
+Task 9: complete (commit c8ef070) — timing perfect 3→5, max 12→18 ; reach perfect 0,3→0,45, max 1,2→1,5 ; IA easy pos 0,6→0,8 / bruit 7,2→11, normal 0,3→0,55 / 4,2→7,5, hard 0,1→0,15 / 2,1→3,2 ; séquences complètes 88→64 %, qualité 0,70/0,84/0,94, difficile bat facile 5/5.
+Final review V1.1 (opus, 2bc3c3a..c8ef070): 0 Critical, 1 Important (mini-carte paysage, joueurs coupés) corrigée avec le ralenti F1 en 6624fe3.
+Ruling: mineures de la revue finale V1.1 laissées en l'état — carte du geste calculée avant le step (écart ≤ 0,23 en attaque, 5/60 cas), carte du geste qui expire pendant la pause, HINT_THRESHOLD hors TUNING, aimantation du contre vers (x,0), touche maintenue bloquant la bascule manette — non bloquantes, détaillées dans docs/documentation-technique.md — coût si faux : une carte « RATÉ » sans cause dans de rares attaques.
+V1.1 COMPLÈTE. Merge dans main.
