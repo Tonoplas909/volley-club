@@ -6,7 +6,7 @@ export type Difficulty = 'easy' | 'normal' | 'hard';
 export type QualityTier = 'perfect' | 'good' | 'ok' | 'miss';
 
 /** Entrée d'un joueur pour un tick. move/aim : norme ≤ 1, repère terrain. */
-export type Command = { move: Vec2; aim: Vec2; actionPressed: boolean };
+export type Command = { move: Vec2; aim: Vec2; actionPressed: boolean; divePressed: boolean };
 
 /** Trajectoire analytique : temps t = (tick - startTick) / 60. */
 export type Trajectory = { origin: Vec3; velocity: Vec3; startTick: number };
@@ -20,7 +20,7 @@ export type BallState = {
 };
 
 export type PendingGesture = {
-  gesture: 'attack' | 'block' | 'toss';
+  gesture: 'attack' | 'block' | 'toss' | 'dive';
   pressTick: number;
   resolveTick: number;
   quality: number | null; // null = geste joué mais ballon non touché (raté)
@@ -28,6 +28,9 @@ export type PendingGesture = {
 };
 
 export type PlayerRole = 'server' | 'receiver' | 'setter' | 'attacker' | 'blocker' | 'defender';
+
+/** Plongeon en cours : tick de départ, position de départ et direction (normalisée) de la glissade. */
+export type DiveState = { startTick: number; from: Vec3; dir: Vec2 };
 
 export type PlayerState = {
   id: number;
@@ -40,6 +43,9 @@ export type PlayerState = {
   jumpStartTick: number | null;
   lockedUntilTick: number;
   pending: PendingGesture | null;
+  dive: DiveState | null;
+  /** Premier tick où un nouveau plongeon est permis (recharge). */
+  diveReadyTick: number;
 };
 
 export type RallyState = {
@@ -73,8 +79,9 @@ export type PointReason =
   | 'landedIn' | 'out' | 'fourTouches' | 'doubleTouch' | 'antenna' | 'serveFault' | 'serveTimeout';
 
 export type GameEvent =
-  | { type: 'touch'; playerId: number; gesture: Gesture; quality: number; tier: QualityTier }
+  | { type: 'touch'; playerId: number; gesture: Gesture; quality: number; tier: QualityTier; dive?: true }
   | { type: 'whiff'; playerId: number; gesture: Gesture }
+  | { type: 'dive'; playerId: number }
   | { type: 'net'; team: TeamId }
   | { type: 'point'; winner: TeamId; reason: PointReason }
   | { type: 'setEnd'; winner: TeamId }

@@ -10,6 +10,8 @@ export type GamepadReading = {
   aim: Vec2 | null;
   /** Bouton 0 (action) maintenu. */
   action: boolean;
+  /** Bouton 1 (B, plongeon) maintenu. */
+  dive: boolean;
   /** Bouton 9 (pause) maintenu. */
   pause: boolean;
 };
@@ -53,6 +55,7 @@ export function readGamepad(pad: Gamepad | null): GamepadReading | null {
     move,
     aim,
     action: pad.buttons[0]?.pressed ?? false,
+    dive: pad.buttons[1]?.pressed ?? false,
     pause: pad.buttons[9]?.pressed ?? false,
   };
 }

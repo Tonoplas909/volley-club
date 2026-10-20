@@ -19,6 +19,8 @@ function makePlayer(overrides: Partial<PlayerState> = {}): PlayerState {
     jumpStartTick: null,
     lockedUntilTick: 0,
     pending: null,
+    dive: null,
+    diveReadyTick: 0,
     ...overrides,
   };
 }

@@ -101,7 +101,7 @@ export function createBrain(playerId: number, difficulty: Difficulty, seed: numb
   /** Visée et appui du serveur : lancer après serveDelayTicks, frappe au sommet du lancer + bruit. */
   function serveCommand(state: GameState, player: PlayerState, key: string): { aim: Vec2; press: boolean } {
     const nextTick = state.tick + 1;
-    const cmd: Command = { move: ZERO, aim: ZERO, actionPressed: true };
+    const cmd: Command = { move: ZERO, aim: ZERO, actionPressed: true, divePressed: false };
     if (pressedKey === key || gestureFor(state, player.id, cmd) !== 'serve') return { aim: ZERO, press: false };
     if (state.ball.mode === 'held') {
       const press = nextTick - state.phaseStartTick >= TUNING.ai.serveDelayTicks;
@@ -121,7 +121,7 @@ export function createBrain(playerId: number, difficulty: Difficulty, seed: numb
     if (whoTakesBall(state, player.team) !== player.id) return none;
     const role = assignRoles(state)[player.id];
     const expected: Gesture | null = role ? ROLE_GESTURE[role] : null;
-    const gesture = gestureFor(state, player.id, { move, aim: ZERO, actionPressed: true });
+    const gesture = gestureFor(state, player.id, { move, aim: ZERO, actionPressed: true, divePressed: false });
     if (gesture === null || gesture !== expected) return none;
     // Contre seulement une fois la passe adverse faite (spec § 7.2).
     if (gesture === 'block' && state.rally.touches !== 2) return none;
@@ -143,7 +143,7 @@ export function createBrain(playerId: number, difficulty: Difficulty, seed: numb
   return {
     think(state: GameState): Command {
       const player = state.players.find((p) => p.id === playerId);
-      if (!player) return { move: { x: 0, z: 0 }, aim: { x: 0, z: 0 }, actionPressed: false };
+      if (!player) return { move: { x: 0, z: 0 }, aim: { x: 0, z: 0 }, actionPressed: false, divePressed: false };
 
       // Temps de réaction : une nouvelle trajectoire n'est prise en compte qu'après reactionTicks.
       // Le sommet de son propre lancer de service est connu sans délai.
@@ -176,7 +176,7 @@ export function createBrain(playerId: number, difficulty: Difficulty, seed: numb
         decision = rallyCommand(state, player, move);
       }
       if (decision.press) pressedKey = key;
-      return { move, aim: { ...decision.aim }, actionPressed: decision.press };
+      return { move, aim: { ...decision.aim }, actionPressed: decision.press, divePressed: false };
     },
   };
 }

@@ -10,7 +10,7 @@ import { TUNING } from '../../src/sim/tuning';
 import type { Command, GameState, PlayerState, TeamId, Trajectory, Vec2, Vec3 } from '../../src/sim/types';
 
 const R = TUNING.ball.radius;
-const NEUTRAL: Command = { move: { x: 0, z: 0 }, aim: { x: 0, z: 0 }, actionPressed: true };
+const NEUTRAL: Command = { move: { x: 0, z: 0 }, aim: { x: 0, z: 0 }, actionPressed: true, divePressed: false };
 
 function cmd(aim: Vec2): Command {
   return { ...NEUTRAL, aim };
@@ -20,6 +20,7 @@ function makePlayer(id: number, team: TeamId, laneIndex: number, pos: Vec3): Pla
   return {
     id, team, laneIndex, isHuman: id === 0, pos, vel: { x: 0, z: 0 }, facing: 0,
     jumpStartTick: null, lockedUntilTick: 0, pending: null,
+    dive: null, diveReadyTick: 0,
   };
 }
 

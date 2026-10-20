@@ -11,6 +11,7 @@ export const NEUTRAL_COMMAND: Command = Object.freeze({
   move: Object.freeze({ x: 0, z: 0 }),
   aim: Object.freeze({ x: 0, z: 0 }),
   actionPressed: false,
+  divePressed: false,
 });
 
 // ───────────────────────── état initial ─────────────────────────
@@ -27,6 +28,7 @@ export function createInitialState(config: MatchConfig): GameState {
         id, team, laneIndex: lane, isHuman: id === config.humanPlayerId,
         pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, z: 0 }, facing: facingNet(team),
         jumpStartTick: null, lockedUntilTick: 0, pending: null,
+        dive: null, diveReadyTick: 0,
       });
     }
   }

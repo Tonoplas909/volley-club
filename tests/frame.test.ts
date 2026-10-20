@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { advanceFrame, newSession, type Session } from '../src/frame';
 import type { InputFrame } from '../src/input/input';
 import { STEP_DT } from '../src/loop';
@@ -10,6 +10,12 @@ import { TUNING } from '../src/sim/tuning';
 import type { Command, GameEvent, GameState, MatchConfig, Vec2 } from '../src/sim/types';
 import { applyMagnetism } from '../src/ui/assist';
 import { missReasonText } from '../src/ui/texts';
+
+// step enveloppé (appelle l'original) pour relever les commandes que frame.ts lui transmet.
+vi.mock('../src/sim/simulation', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../src/sim/simulation')>();
+  return { ...original, step: vi.fn(original.step) };
+});
 
 const HUMAN = 0;
 
@@ -154,6 +160,53 @@ describe('advanceFrame : appuis pendant un gel (spec § 8 point 2)', () => {
     expect(seen[0]!.events).toHaveLength(1);
     // Joué au premier step après le gel : aucun step n'avait eu lieu depuis l'appui.
     expect(seen[0]!.tick).toBe(tickAtPress);
+  });
+});
+
+describe('advanceFrame : verrou du plongeon', () => {
+  /** Commandes de l'humain reçues par step, dans l'ordre des steps joués. */
+  function humanDiveFlags(from: number): boolean[] {
+    return vi.mocked(step).mock.calls.slice(from).map(([, commands]) => commands[HUMAN]!.divePressed);
+  }
+
+  it('un appui Plongeon pendant le gel est transmis à step exactement une fois, au premier step après le gel', () => {
+    const { s, now: t0 } = atHumanServe();
+    let now = toss(s, t0);
+    s.fx.onEvents([attackTouch], s.curr); // gel de 140 ms
+    const calls = vi.mocked(step).mock.calls.length;
+
+    now += 0.01;
+    const out = advanceFrame(s, input({ divePressed: true }), 0.01, now);
+    expect(out.overlay.fx.timeScale).toBe(0);
+    expect(humanDiveFlags(calls)).toEqual([]); // gel : aucun step
+
+    for (let i = 0; i < 20; i++) {
+      now += 0.02;
+      advanceFrame(s, input(), 0.02, now);
+    }
+    const flags = humanDiveFlags(calls);
+    expect(flags.length).toBeGreaterThan(1);
+    expect(flags[0]).toBe(true);
+    expect(flags.slice(1).every((f) => !f)).toBe(true);
+  });
+
+  it('un appui maintenu à chaque frame sans front n’est joué qu’une fois par appui reçu', () => {
+    const { s, now: t0 } = atHumanServe();
+    let now = toss(s, t0);
+    const calls = vi.mocked(step).mock.calls.length;
+    now += STEP_DT * 1.5;
+    advanceFrame(s, input({ divePressed: true }), STEP_DT * 1.5, now);
+    now += STEP_DT * 1.5;
+    advanceFrame(s, input(), STEP_DT * 1.5, now);
+    expect(humanDiveFlags(calls).filter(Boolean)).toHaveLength(1);
+  });
+
+  it('en pause, le verrou est remis à false', () => {
+    const { s, now } = atHumanServe();
+    s.diveLatch = true;
+    advanceFrame(s, input({}, { pausePressed: true }), 0.016, now + 0.016);
+    expect(s.paused).toBe(true);
+    expect(s.diveLatch).toBe(false);
   });
 });
 

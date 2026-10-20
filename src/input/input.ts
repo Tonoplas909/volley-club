@@ -21,6 +21,7 @@ export interface InputSource {
 export function createInput(target: InputTarget): InputSource {
   const keyboard = createKeyboard(target);
   let prevPadAction = false;
+  let prevPadDive = false;
   let prevPadPause = false;
   let device: InputDevice = 'keyboard';
 
@@ -32,7 +33,7 @@ export function createInput(target: InputTarget): InputSource {
       // Périphérique actif : le clavier est testé en dernier, il l'emporte si les deux agissent dans le même poll.
       const padActive =
         pad !== null &&
-        (pad.move.x !== 0 || pad.move.z !== 0 || pad.aim !== null || pad.action || pad.pause);
+        (pad.move.x !== 0 || pad.move.z !== 0 || pad.aim !== null || pad.action || pad.dive || pad.pause);
       const keyboardActive = keyboard.held.size > 0 || edges.size > 0;
       if (padActive) device = 'gamepad';
       if (keyboardActive) device = 'keyboard';
@@ -45,10 +46,13 @@ export function createInput(target: InputTarget): InputSource {
 
       // Fronts montants de la manette (un seul poll par appui).
       const padAction = pad?.action ?? false;
+      const padDive = pad?.dive ?? false;
       const padPause = pad?.pause ?? false;
       const padActionEdge = padAction && !prevPadAction;
+      const padDiveEdge = padDive && !prevPadDive;
       const padPauseEdge = padPause && !prevPadPause;
       prevPadAction = padAction;
+      prevPadDive = padDive;
       prevPadPause = padPause;
 
       return {
@@ -56,6 +60,8 @@ export function createInput(target: InputTarget): InputSource {
           move: { x: move.x, z: move.z },
           aim: { x: aim.x, z: aim.z },
           actionPressed: edges.has('Space') || padActionEdge,
+          // Front montant seulement : `edges` ignore l'auto-répétition, donc Maj maintenue ne rejoue pas.
+          divePressed: edges.has('ShiftLeft') || edges.has('ShiftRight') || padDiveEdge,
         },
         pausePressed: edges.has('Escape') || padPauseEdge,
         debugPressed: edges.has('F1'),

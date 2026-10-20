@@ -39,6 +39,8 @@ export type Session = {
   debug: boolean;
   /** Appui Action reçu mais pas encore joué (gel ou ralenti : une frame peut n'avoir aucun step). */
   actionLatch: boolean;
+  /** Idem pour l'appui Plongeon. */
+  diveLatch: boolean;
   /** Événements accumulés depuis la frame précédente (vidés à chaque frame). */
   events: GameEvent[];
   /** Explication du dernier appui de l'humain qui a produit un geste, en attente de son touch ou whiff. */
@@ -59,7 +61,7 @@ export function newSession(config: MatchConfig, options: MatchOptions): Session 
   });
   return {
     config, options, brains, fx: createFx({ reducedMotion: options.reducedMotion }),
-    prev: state, curr: state, acc: 0, paused: false, debug: false, actionLatch: false, events: [],
+    prev: state, curr: state, acc: 0, paused: false, debug: false, actionLatch: false, diveLatch: false, events: [],
     pendingExplanation: null, lastPress: null, lastQuality: 0,
   };
 }
@@ -72,8 +74,9 @@ function playStep(s: Session, frameInput: InputFrame, now: number): void {
     ? applyMagnetism(before, humanId, frameInput.command)
     : frameInput.command;
   // L'appui Action n'est joué qu'au premier step effectif (front montant, pas un maintien).
-  const human: Command = { ...moved, actionPressed: s.actionLatch };
+  const human: Command = { ...moved, actionPressed: s.actionLatch, divePressed: s.diveLatch };
   s.actionLatch = false;
+  s.diveLatch = false;
 
   if (humanId !== null && human.actionPressed) {
     const gesture = gestureFor(before, humanId, human);
@@ -112,8 +115,10 @@ export function advanceFrame(s: Session, frameInput: InputFrame, frameDt: number
   let fx: FxFrame = PAUSED_FX;
   if (s.paused) {
     s.actionLatch = false;
+    s.diveLatch = false;
   } else {
     if (frameInput.command.actionPressed) s.actionLatch = true;
+    if (frameInput.command.divePressed) s.diveLatch = true;
     fx = s.fx.advance(frameDt);
     // Le ralenti debug s'applique aussi au rendu (animations), pas seulement à la simulation.
     if (s.debug) fx = { ...fx, timeScale: fx.timeScale * DEBUG_TIME_SCALE };

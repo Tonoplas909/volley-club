@@ -7,6 +7,7 @@ function makePlayer(id: number, team: 0 | 1, laneIndex: number): PlayerState {
     id, team, laneIndex, isHuman: id === 0,
     pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, z: 0 }, facing: 0,
     jumpStartTick: null, lockedUntilTick: 0, pending: null,
+    dive: null, diveReadyTick: 0,
   };
 }
 

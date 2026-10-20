@@ -11,12 +11,13 @@ import { applyMagnetism } from '../../src/ui/assist';
 
 const R = TUNING.ball.radius;
 const HUMAN = 0;
-const NEUTRAL: Command = { move: { x: 0, z: 0 }, aim: { x: 0, z: 0 }, actionPressed: false };
+const NEUTRAL: Command = { move: { x: 0, z: 0 }, aim: { x: 0, z: 0 }, actionPressed: false, divePressed: false };
 
 function makePlayer(id: number, team: TeamId, laneIndex: number, pos: Vec3): PlayerState {
   return {
     id, team, laneIndex, isHuman: id === HUMAN, pos, vel: { x: 0, z: 0 }, facing: 0,
     jumpStartTick: null, lockedUntilTick: 0, pending: null,
+    dive: null, diveReadyTick: 0,
   };
 }
 
@@ -67,7 +68,7 @@ function moved(state: GameState, id: number, pos: Vec2, vel: Vec2 = { x: 0, z: 0
   };
 }
 
-const withMove = (move: Vec2, aim: Vec2 = { x: 0, z: 0 }): Command => ({ move, aim, actionPressed: false });
+const withMove = (move: Vec2, aim: Vec2 = { x: 0, z: 0 }): Command => ({ move, aim, actionPressed: false, divePressed: false });
 const norm = (v: Vec2) => Math.hypot(v.x, v.z);
 
 describe('applyMagnetism', () => {
@@ -113,7 +114,7 @@ describe('applyMagnetism', () => {
 
   it('visée intacte : aim et actionPressed ne changent jamais (point de vigilance 4)', () => {
     const aim = { x: 0.7, z: 0.7 };
-    const out = applyMagnetism(at(1), HUMAN, { move: { x: 0.2, z: 0.1 }, aim, actionPressed: true });
+    const out = applyMagnetism(at(1), HUMAN, { move: { x: 0.2, z: 0.1 }, aim, actionPressed: true, divePressed: false });
     expect(out.aim).toEqual({ x: 0.7, z: 0.7 });
     expect(out.actionPressed).toBe(true);
     expect(out.move).not.toEqual({ x: 0.2, z: 0.1 });

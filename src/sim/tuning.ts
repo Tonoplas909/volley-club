@@ -43,8 +43,14 @@ export const TUNING = {
   fx: {
     hitStopMs: { touch: 60, perfect: 100, attack: 140, block: 140 },
     slowMo: { scale: 0.35, seconds: 0.6, easeOutSeconds: 0.15 },
-    shake: { attack: 0.25, block: 0.2, landing: 0.12, decaySeconds: 0.25 },
+    shake: { attack: 0.25, block: 0.2, landing: 0.12, dive: 0.08, decaySeconds: 0.25 },
     feedbackSeconds: 1.5,
+  },
+  /** Plongeon : glissade (mètres, ticks), recharge, réception d'urgence et seuils de l'IA. */
+  dive: {
+    distance: 2.5, slideTicks: 18, recoveryTicks: 42, cooldownTicks: 300,
+    maxLeadTicks: 45, qualityCap: 0.75, errorFactor: 1.3, saveDepth: 4,
+    minMoveForDirection: 0.2, aiRunMargin: 0.8,
   },
   /** V1.1, aimantation de l'humain (rayon et distances en mètres, force dans [0, 1]). */
   assist: { magnetRadius: 1.5, magnetStrength: 0.6, magnetFullDistance: 0.5, magnetDeadZone: 0.1 },

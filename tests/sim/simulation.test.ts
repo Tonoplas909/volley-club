@@ -25,7 +25,7 @@ const CONFIG: MatchConfig = {
 /** Commandes où seul `id` appuie sur Action. */
 function press(id: number, aim: Vec2 = { x: 0, z: 0 }): Command[] {
   const cmds: Command[] = [];
-  cmds[id] = { move: { x: 0, z: 0 }, aim, actionPressed: true };
+  cmds[id] = { move: { x: 0, z: 0 }, aim, actionPressed: true, divePressed: false };
   return Array.from({ length: id + 1 }, (_, i) => cmds[i] ?? NEUTRAL_COMMAND);
 }
 
@@ -145,7 +145,7 @@ describe('placement', () => {
 
   it('les commandes sont ignorées pendant le placement', () => {
     const s0 = createInitialState(CONFIG);
-    const pushing: Command = { move: { x: 1, z: 0 }, aim: { x: 0, z: 0 }, actionPressed: true };
+    const pushing: Command = { move: { x: 1, z: 0 }, aim: { x: 0, z: 0 }, actionPressed: true, divePressed: false };
     const s = run(s0, 10, s0.players.map(() => pushing)).state;
     expect(s.events).toEqual([]);
     for (const p of s.players) expect(p.pos).toEqual(startPosition(s, p.id));
@@ -273,7 +273,7 @@ describe('appuis répétés ou sans contexte (point de vigilance 3)', () => {
     const scored = run(toServe(), TUNING.touch.serveTimeoutTicks).state;
     expect(scored.phase).toBe('pointScored');
     expect(scored.ball.mode).toBe('dead');
-    const all = scored.players.map(() => ({ ...NEUTRAL_COMMAND, actionPressed: true }));
+    const all = scored.players.map(() => ({ ...NEUTRAL_COMMAND, actionPressed: true, divePressed: false }));
     let s = scored;
     expect(() => {
       for (let i = 0; i < 10; i++) {
@@ -462,7 +462,7 @@ describe('enchaînement des phases', () => {
     expect(ended.phase).toBe('matchEnd');
     expect(ended.matchWinner).toBe(0);
     expect(events).toContainEqual({ type: 'matchEnd', winner: 0 });
-    const later = run(ended, 50, ended.players.map(() => ({ ...NEUTRAL_COMMAND, actionPressed: true }))).state;
+    const later = run(ended, 50, ended.players.map(() => ({ ...NEUTRAL_COMMAND, actionPressed: true, divePressed: false }))).state;
     expect(later.phase).toBe('matchEnd');
     expect(later.events).toEqual([]);
     expect(later.score).toEqual(ended.score);
@@ -503,6 +503,7 @@ describe('pureté et robustesse', () => {
             move: { x: a.value * 2 - 1, z: b.value * 2 - 1 },
             aim: { x: b.value * 2 - 1, z: a.value * 2 - 1 },
             actionPressed: c.value < 0.08,
+            divePressed: false,
           };
         });
         s = step(s, cmds);

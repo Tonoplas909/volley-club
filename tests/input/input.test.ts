@@ -294,3 +294,73 @@ describe('périphérique actif', () => {
     input.dispose();
   });
 });
+
+describe('createInput plongeon', () => {
+  it.each(['ShiftLeft', 'ShiftRight'])('%s donne divePressed sur un seul poll', (code) => {
+    setPads([]);
+    const target = new EventTarget();
+    const input = createInput(target);
+    expect(input.poll().command.divePressed).toBe(false);
+    target.dispatchEvent(keyEvent('keydown', code));
+    expect(input.poll().command.divePressed).toBe(true);
+    expect(input.poll().command.divePressed).toBe(false);
+    input.dispose();
+  });
+
+  it('Maj maintenue pendant 10 polls : exactement un true', () => {
+    setPads([]);
+    const target = new EventTarget();
+    const input = createInput(target);
+    target.dispatchEvent(keyEvent('keydown', 'ShiftLeft'));
+    let trues = 0;
+    for (let i = 0; i < 10; i++) {
+      if (input.poll().command.divePressed) trues++;
+      // L'auto-répétition du système renvoie des keydown : ils ne comptent pas.
+      target.dispatchEvent(keyEvent('keydown', 'ShiftLeft'));
+    }
+    expect(trues).toBe(1);
+    input.dispose();
+  });
+
+  it('Maj relâchée puis repressée redonne un front', () => {
+    setPads([]);
+    const target = new EventTarget();
+    const input = createInput(target);
+    target.dispatchEvent(keyEvent('keydown', 'ShiftLeft'));
+    expect(input.poll().command.divePressed).toBe(true);
+    target.dispatchEvent(keyEvent('keyup', 'ShiftLeft'));
+    target.dispatchEvent(keyEvent('keydown', 'ShiftLeft'));
+    expect(input.poll().command.divePressed).toBe(true);
+    input.dispose();
+  });
+
+  it('Maj compte comme activité clavier', () => {
+    setPads([fakePad([0, 0], [true])]);
+    const target = new EventTarget();
+    const input = createInput(target);
+    expect(input.poll().device).toBe('gamepad');
+    target.dispatchEvent(keyEvent('keydown', 'ShiftLeft'));
+    expect(input.poll().device).toBe('keyboard');
+    input.dispose();
+  });
+
+  it('le bouton 1 de la manette donne un seul true par appui', () => {
+    setPads([fakePad([0, 0], [false, true])]);
+    const input = createInput(new EventTarget());
+    expect(input.poll().command.divePressed).toBe(true);
+    expect(input.poll().command.divePressed).toBe(false);
+    expect(input.poll().command.divePressed).toBe(false);
+    setPads([fakePad([0, 0], [false, false])]);
+    expect(input.poll().command.divePressed).toBe(false);
+    setPads([fakePad([0, 0], [false, true])]);
+    expect(input.poll().command.divePressed).toBe(true);
+    input.dispose();
+  });
+
+  it('le bouton B seul rend la manette active', () => {
+    setPads([fakePad([0, 0], [false, true])]);
+    const input = createInput(new EventTarget());
+    expect(input.poll().device).toBe('gamepad');
+    input.dispose();
+  });
+});
