@@ -3,6 +3,7 @@
  * Il a sa propre mémoire (réaction, erreurs tirées, appui déjà fait) et son propre rng seedé.
  */
 import { currentServerId } from '../court';
+import { canStartDive, diveOpportunity } from '../dive';
 import { jumpApexTicks } from '../player';
 import { rngGaussian, rngInDisc } from '../rng';
 import { gestureFor, idealPressTick } from '../touch';
@@ -24,6 +25,12 @@ const SLOW_RADIUS = 0.5;
 const MAX_LATE_TICKS = TUNING.touch.timing.maxTicks;
 
 const ZERO: Vec2 = Object.freeze({ x: 0, z: 0 }) as Vec2;
+
+/**
+ * Plongeon décidé sur une trajectoire (spec Plongeon § 5) : tick d'appui sans bruit (ideal − slideTicks),
+ * tick visé (avec le bruit de timing), instant idéal et direction vers le point de contact.
+ */
+type DivePlan = { pressTick: number; noisyTick: number; ideal: number; dir: Vec2 };
 
 /**
  * Identité de la situation de balle. Tenu, le ballon est replacé à chaque tick (startTick change) :
@@ -72,6 +79,7 @@ export function createBrain(playerId: number, difficulty: Difficulty, seed: numb
   let blockOffset = 0;
   let target: Vec2 | null = null;
   let pressedKey: string | null = null;
+  let divePlan: DivePlan | null = null;
 
   /**
    * Nouvelle trajectoire prise en compte : tirage de l'erreur de placement, du bruit de timing
@@ -132,6 +140,32 @@ export function createBrain(playerId: number, difficulty: Difficulty, seed: numb
     return { aim: choice.aim, press: true };
   }
 
+  /**
+   * Plongeon (spec Plongeon § 5) : l'opportunité est réévaluée à chaque tick jusqu'à l'appui sans bruit
+   * (ideal − slideTicks) ; après, elle est nulle faute de temps pour glisser, et la décision prise tient.
+   * L'appui est joué au tick visé `pressTick + timingNoise` (convention « tick + 1 », comme Action),
+   * avant l'instant idéal, par le joueur désigné et seulement si son plongeon peut démarrer (recharge prête).
+   * Le plan est oublié à chaque nouvelle trajectoire. Renvoie la direction du plongeon (move du tick
+ * d'appui), ou null s'il ne faut pas appuyer.
+   */
+  function diveCommand(state: GameState, player: PlayerState, move: Vec2): Vec2 | null {
+    // Ballon relancé au dernier step : jamais d'appui sur une trajectoire toute neuve.
+    if (state.ball.traj.startTick === state.tick) return null;
+    const cmd: Command = { move, aim: ZERO, actionPressed: true, divePressed: false };
+    const opp = diveOpportunity(state, player.id, cmd);
+    if (opp) {
+      const ideal = opp.pressTick + TUNING.dive.slideTicks;
+      divePlan = { pressTick: opp.pressTick, noisyTick: opp.pressTick + timingNoise, ideal, dir: opp.dir };
+    } else if (divePlan && state.tick <= divePlan.pressTick) {
+      divePlan = null; // plus d'opportunité avant l'appui sans bruit : le ballon est atteignable en courant, etc.
+    }
+    if (!divePlan) return null;
+    const nextTick = state.tick + 1;
+    if (nextTick < divePlan.noisyTick || nextTick > divePlan.ideal) return null;
+    if (!canStartDive(state, player.id) || whoTakesBall(state, player.team) !== player.id) return null;
+    return divePlan.dir;
+  }
+
   /** Attaquant désigné après la passe de son équipe : il prend son élan vers le point de frappe. */
   function isAttackApproach(state: GameState, player: PlayerState): boolean {
     const { rally } = state;
@@ -152,6 +186,7 @@ export function createBrain(playerId: number, difficulty: Difficulty, seed: numb
         seenKey = key;
         changeTick = state.tick;
         reacted = false;
+        divePlan = null;
       }
       const ownToss = player.pending?.gesture === 'toss';
       if (!reacted && (ownToss || state.tick - changeTick >= preset.reactionTicks)) react();
@@ -168,15 +203,23 @@ export function createBrain(playerId: number, difficulty: Difficulty, seed: numb
       }
 
       let decision = { aim: ZERO, press: false };
+      let dive = false;
       const isServer = state.phase === 'serve' && currentServerId(state) === playerId;
       if (isServer) {
         // Le lancer ne dépend que du délai de service ; la frappe suit la réaction au lancer (immédiate).
         if (state.ball.mode === 'held' || reacted) decision = serveCommand(state, player, key);
       } else if (state.phase === 'rally' && state.ball.mode === 'flying' && reacted && pressedKey !== key) {
         decision = rallyCommand(state, player, move);
+        if (!decision.press) {
+          const dir = diveCommand(state, player, move);
+          if (dir) {
+            dive = true;
+            move = { ...dir };
+          }
+        }
       }
-      if (decision.press) pressedKey = key;
-      return { move, aim: { ...decision.aim }, actionPressed: decision.press, divePressed: false };
+      if (decision.press || dive) pressedKey = key;
+      return { move, aim: { ...decision.aim }, actionPressed: decision.press, divePressed: dive };
     },
   };
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { landingPoint, launchTo, positionAt } from '../../src/sim/ball';
 import { sideOf, startPosition } from '../../src/sim/court';
-import { canStartDive, diveDirection, diveIntent, divePosition } from '../../src/sim/dive';
+import { canStartDive, diveDirection, diveIntent, diveOpportunity, divePosition } from '../../src/sim/dive';
 import { canAct } from '../../src/sim/player';
 import { createInitialState, NEUTRAL_COMMAND, step } from '../../src/sim/simulation';
 import { contactPoint, gestureFor, idealPressTick } from '../../src/sim/touch';
@@ -420,6 +420,75 @@ describe('fin de point (vigilance 4)', () => {
       expect(p.diveReadyTick).toBe(0);
       expect(p.dive).toBeNull();
     }
+  });
+});
+
+describe('diveOpportunity (spec § 5)', () => {
+  const NEUTRAL: Command = { move: ZERO, aim: ZERO, actionPressed: false, divePressed: false };
+
+  /**
+   * Ballon adverse qui descend dans le couloir 0 ; joueur 0 placé à `d` m (vers son fond) du point de
+   * contact de réception, `lead` ticks avant l'instant idéal.
+   */
+  function ballAt(d: number, lead: number) {
+    const s = rallyState(INCOMING, OPPONENT_ATTACK, OPPONENT_RALLY);
+    const c = contactPoint(s, 0, 'reception')!;
+    const ideal = idealPressTick(s, 0, 'reception')!;
+    s.players[0]!.pos = { x: c.x, y: 0, z: c.z - d };
+    const before = toTickBefore(s, ideal - lead + 1);
+    expect(before.tick).toBe(ideal - lead);
+    before.players[0]!.pos = { x: c.x, y: 0, z: c.z - d };
+    before.players[0]!.vel = { x: 0, z: 0 };
+    return { s: before, ideal };
+  }
+
+  it('ballon à 2,2 m dans 20 ticks : opportunité, appui à ideal − T, direction vers le contact', () => {
+    const { s, ideal } = ballAt(2.2, 20);
+    const opp = diveOpportunity(s, 0, NEUTRAL);
+    expect(opp).not.toBeNull();
+    expect(opp!.pressTick).toBe(ideal - SLIDE);
+    expect(opp!.dir.x).toBeCloseTo(0, 9);
+    expect(opp!.dir.z).toBeCloseTo(1, 9);
+  });
+
+  it('le même ballon dans 40 ou 60 ticks : null (atteignable en courant)', () => {
+    expect(diveOpportunity(ballAt(2.2, 40).s, 0, NEUTRAL)).toBeNull();
+    expect(diveOpportunity(ballAt(2.2, 60).s, 0, NEUTRAL)).toBeNull();
+  });
+
+  it('ballon à 5 m : null (hors de portée du plongeon)', () => {
+    expect(diveOpportunity(ballAt(5, 20).s, 0, NEUTRAL)).toBeNull();
+  });
+
+  it('moins de T ticks avant l instant idéal : null (trop tard pour glisser)', () => {
+    expect(diveOpportunity(ballAt(2.2, SLIDE - 1).s, 0, NEUTRAL)).toBeNull();
+    expect(diveOpportunity(ballAt(2.2, SLIDE).s, 0, NEUTRAL)).not.toBeNull();
+  });
+
+  it('pendant la recharge : null', () => {
+    const { s } = ballAt(2.2, 20);
+    s.players[0]!.diveReadyTick = s.tick + 1;
+    expect(diveOpportunity(s, 0, NEUTRAL)).toBeNull();
+  });
+
+  it('joueur non désigné (couloir de l autre joueur) : null', () => {
+    const { s } = ballAt(2.2, 20);
+    const c = contactPoint(s, 1, 'reception')!;
+    s.players[1]!.pos = { x: c.x, y: 0, z: c.z - 2.2 };
+    expect(diveOpportunity(s, 1, NEUTRAL)).toBeNull();
+  });
+
+  it('3e touche (sauvetage) : opportunité sur le point de contact de réception', () => {
+    const s = rallyState(OWN_SET_BALL, OWN_SET, TWO_TOUCHES);
+    const ideal = idealPressTick(s, 0, 'reception')!;
+    const before = toTickBefore(s, ideal - 20 + 1);
+    const c = contactPoint(before, 0, 'reception')!;
+    before.players[0]!.pos = { x: c.x, y: 0, z: c.z - 2.2 };
+    before.players[1]!.pos = { x: 3.5, y: 0, z: -7 };
+    const opp = diveOpportunity(before, 0, NEUTRAL);
+    expect(opp).not.toBeNull();
+    expect(opp!.pressTick).toBe(ideal - SLIDE);
+    expect(opp!.dir.z).toBeCloseTo(1, 9);
   });
 });
 

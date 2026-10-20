@@ -200,6 +200,84 @@ describe('contrat des couloirs avec l\'humain', () => {
   });
 });
 
+describe('plongeon de l\'IA (spec Plongeon § 5)', () => {
+  /** Attaque rapide (0,8 s) vers x ; le joueur `id` est placé à `d` m (vers son fond) du point de contact. */
+  function fastBall(x: number, id: number, d: number, config: MatchConfig = CONFIG): GameState {
+    const s = incomingAt(x, config, 0.8);
+    const c = contactPoint(s, id, 'reception')!;
+    s.players[id]!.pos = { x: c.x, y: 0, z: c.z - d };
+    return s;
+  }
+
+  /** Joue `ticks` steps : le joueur `id` piloté par `brain`, les autres neutres. */
+  function play(from: GameState, id: number, brain: { think(s: GameState): Command }, ticks: number) {
+    let s = from;
+    const commands: Command[] = [];
+    const events: GameEvent[] = [];
+    for (let i = 0; i < ticks; i++) {
+      const cmd = brain.think(s);
+      commands.push(cmd);
+      s = step(s, s.players.map((p) => (p.id === id ? cmd : NEUTRAL_COMMAND)));
+      events.push(...s.events);
+    }
+    return { commands, events, final: s };
+  }
+
+  it('balle hors de portée en courant : un seul appui Plongeon sur la trajectoire, puis aucun pendant 300 ticks', () => {
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const { commands, events } = play(fastBall(2, 1, 3), 1, createBrain(1, 'normal', seed), 300 + 60);
+      const presses = commands.flatMap((c, i) => (c.divePressed ? [i] : []));
+      expect(presses).toHaveLength(1);
+      // Appui joué : le plongeon démarre, dans la direction du ballon (move = dir, vers +z ici).
+      expect(events.filter((e) => e.type === 'dive')).toEqual([{ type: 'dive', playerId: 1 }]);
+      const press = commands[presses[0]!]!;
+      expect(press.actionPressed).toBe(false);
+      expect(press.move.z).toBeGreaterThan(0.9);
+    }
+  });
+
+  it('le plongeon de l\'IA sauve des ballons : au moins une touche de plongeon sur 10 seeds', () => {
+    let saved = 0;
+    for (let seed = 1; seed <= 10; seed++) {
+      const { events } = play(fastBall(2, 1, 3), 1, createBrain(1, 'normal', seed), 120);
+      if (events.some((e) => e.type === 'touch' && e.playerId === 1 && e.dive === true)) saved += 1;
+    }
+    expect(saved).toBeGreaterThan(0);
+  });
+
+  it('balle atteignable en courant : pas de plongeon', () => {
+    for (const seed of [1, 2, 3, 4, 5]) {
+      // 1,6 s de vol, joueur 1 à 1,3 m du point de contact.
+      const { commands } = play(incomingAt(2), 1, createBrain(1, 'normal', seed), 200);
+      expect(commands.some((c) => c.divePressed)).toBe(false);
+    }
+  });
+
+  it('pendant la recharge : jamais d\'appui Plongeon', () => {
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const s = fastBall(2, 1, 3);
+      s.players[1]!.diveReadyTick = s.tick + 150;
+      const { commands } = play(s, 1, createBrain(1, 'normal', seed), 150);
+      expect(commands.some((c) => c.divePressed)).toBe(false);
+    }
+  });
+
+  it('point de vigilance 3 : ballon à 2,2 m dans le couloir de l\'humain, le coéquipier IA ne plonge jamais', () => {
+    const config = { ...CONFIG, humanPlayerId: 0 };
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const s = fastBall(-2, 1, 2.2, config);
+      s.players[0]!.pos = { x: -3.5, y: 0, z: -9 }; // humain loin, immobile
+      expect(whoTakesBall(s, 0)).toBe(0);
+      const { commands, events } = play(s, 1, createBrain(1, 'normal', seed), 300);
+      expect(commands.some((c) => c.divePressed)).toBe(false);
+      expect(events.some((e) => e.type === 'dive')).toBe(false);
+      // Témoin : la même balle dans son propre couloir le fait plonger.
+      const own = play(fastBall(2, 1, 2.2, config), 1, createBrain(1, 'normal', seed), 120);
+      expect(own.commands.filter((c) => c.divePressed)).toHaveLength(1);
+    }
+  });
+});
+
 describe('chooseAttackAim', () => {
   /** L'équipe 0 attaque (3e touche) ; le joueur 1 est près du filet en x = 0. */
   function attackState(defenders: Vec2[]): GameState {

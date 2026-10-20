@@ -68,6 +68,11 @@ describe('matchs IA contre IA, normal contre normal (quick)', () => {
     expect(rallies.length).toBeGreaterThan(0);
     expect(full / rallies.length).toBeGreaterThanOrEqual(MIN_FULL_SEQUENCE_SHARE);
   }, TIMEOUT_MS);
+
+  it('au moins un plongeon sur les 5 seeds (spec Plongeon § 5)', () => {
+    const dives = SEEDS.reduce((n, seed) => n + normalRun(seed).dives, 0);
+    expect(dives).toBeGreaterThanOrEqual(1);
+  }, TIMEOUT_MS);
 });
 
 describe('matchs IA contre IA, hard contre easy (quick)', () => {

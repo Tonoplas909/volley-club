@@ -14,7 +14,8 @@ export type RallyStats = {
   reason: PointReason;
 };
 
-export type MatchRun = { final: GameState; rallies: RallyStats[] };
+/** `dives` : nombre d'événements `dive` (plongeons démarrés) sur le match. */
+export type MatchRun = { final: GameState; rallies: RallyStats[]; dives: number };
 
 const FULL_SEQUENCE: readonly Gesture[] = ['reception', 'set', 'attack'];
 
@@ -68,14 +69,16 @@ export function runMatch(config: MatchConfig, maxTicks: number): MatchRun {
   const tracker = new RallyTracker((id) => teams[id] ?? 0);
   const rallies: RallyStats[] = [];
   const commands: Command[] = new Array<Command>(brains.length);
+  let dives = 0;
 
   while (state.phase !== 'matchEnd' && state.tick < maxTicks) {
     for (let i = 0; i < brains.length; i++) commands[i] = brains[i]!.think(state);
     state = step(state, commands);
     for (const ev of state.events) {
+      if (ev.type === 'dive') dives += 1;
       const stats = tracker.onEvent(ev);
       if (stats) rallies.push(stats);
     }
   }
-  return { final: state, rallies };
+  return { final: state, rallies, dives };
 }
