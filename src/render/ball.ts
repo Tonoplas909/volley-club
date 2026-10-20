@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { TUNING } from '../sim/tuning';
 import type { Vec3 } from '../sim/types';
 import { disposeObject } from './scene';
+import { addOutline, toonMaterial } from './toon';
 
 const RADIUS = TUNING.ball.radius;
 const SHADOW_Y = 0.015;
@@ -25,7 +26,7 @@ function beachTexture(): THREE.CanvasTexture {
   canvas.height = 64;
   const ctx = canvas.getContext('2d');
   if (ctx) {
-    const colors = ['#f6d523', '#ffffff', '#2f6fe4'];
+    const colors = ['#ffdd00', '#ffffff', '#1f6bff'];
     const w = canvas.width / PANELS;
     for (let i = 0; i < PANELS; i++) {
       ctx.fillStyle = colors[i % colors.length] ?? '#ffffff';
@@ -43,8 +44,10 @@ export function createBall(): BallView {
 
   const ball = new THREE.Mesh(
     new THREE.SphereGeometry(RADIUS, 20, 14),
-    new THREE.MeshLambertMaterial({ map: beachTexture() }),
+    toonMaterial(0xffffff),
   );
+  ball.material.map = beachTexture();
+  addOutline(ball, 0.06);
   ball.castShadow = false;
   group.add(ball);
 

@@ -15,6 +15,18 @@ const RING_GREEN_BELOW = 0.1;
 const RING_COLOR = 0xffffff;
 const RING_GREEN = 0x38e06b;
 
+/** Contour épais du point de chute et pulsation douce (rayon relatif, rad/s). */
+const LANDING_OUTLINE = 0.1;
+const LANDING_PULSE = { amplitude: 0.1, speed: 8 };
+
+/** Pop des textes flottants : échelle 0 → POP_PEAK → 1 en POP_SECONDS. */
+const POP_SECONDS = 0.2;
+const POP_PEAK = 1.3;
+const POP_PEAK_AT = 0.5;
+
+/** Police du jeu (le fichier est chargé par la tâche 7) puis polices de repli. */
+export const LABEL_FONT = "'Fredoka', ui-rounded, 'Arial Rounded MT Bold', system-ui, sans-serif";
+
 const TEXT_SECONDS = 1;
 const TEXT_FADE_FROM = 0.6;
 const TEXT_START_HEIGHT = 2.5;
@@ -22,10 +34,10 @@ const TEXT_RISE_SPEED = 0.8;
 const TEXT_SCALE = { x: 1.8, y: 0.675 };
 
 const TIER_LABELS: Record<QualityTier, { text: string; color: string }> = {
-  perfect: { text: 'Parfait', color: '#ffd23f' },
-  good: { text: 'Bien', color: '#5fe08a' },
-  ok: { text: 'Moyen', color: '#ffffff' },
-  miss: { text: 'Raté', color: '#ff6b5e' },
+  perfect: { text: 'PARFAIT !', color: '#ffd23f' },
+  good: { text: 'BIEN', color: '#5fe08a' },
+  ok: { text: 'MOYEN', color: '#ffffff' },
+  miss: { text: 'RATÉ', color: '#ff6b5e' },
 };
 
 /** Dessine un texte centré, avec contour, sur un canvas (vidé au préalable). */
@@ -33,12 +45,12 @@ export function drawLabel(canvas: HTMLCanvasElement, text: string, color: string
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.font = `bold ${fontPx}px sans-serif`;
+  ctx.font = `bold ${fontPx}px ${LABEL_FONT}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.lineJoin = 'round';
-  ctx.lineWidth = fontPx / 6;
-  ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+  ctx.lineWidth = fontPx / 4;
+  ctx.strokeStyle = 'rgba(0,0,0,0.9)';
   ctx.strokeText(text, canvas.width / 2, canvas.height / 2);
   ctx.fillStyle = color;
   ctx.fillText(text, canvas.width / 2, canvas.height / 2);
@@ -52,6 +64,15 @@ export function makeLabelTexture(text: string, color: string, fontPx = 56, width
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
+}
+
+/** Échelle du pop d'un texte flottant à l'âge `age` (s) : 0 → 1,3 → 1 en 0,2 s, puis 1. */
+export function popScale(age: number): number {
+  if (age >= POP_SECONDS) return 1;
+  const peakAt = POP_SECONDS * POP_PEAK_AT;
+  if (age <= 0) return 0;
+  if (age < peakAt) return (age / peakAt) * POP_PEAK;
+  return POP_PEAK + (1 - POP_PEAK) * ((age - peakAt) / (POP_SECONDS - peakAt));
 }
 
 /** Sprite de texte toujours visible (sans test de profondeur). */
@@ -107,7 +128,17 @@ export interface MarkersView {
 export function createMarkers(): MarkersView {
   const group = new THREE.Group();
 
-  const landing = flatDisc(LANDING_RADIUS, 0xe5483b, 0.6, GROUND_Y.landing);
+  const landing = new THREE.Group();
+  const landingFill = flatDisc(LANDING_RADIUS, 0xff4a36, 0.75, GROUND_Y.landing);
+  landingFill.visible = true;
+  const landingEdge = new THREE.Mesh(
+    new THREE.RingGeometry(LANDING_RADIUS, LANDING_RADIUS + LANDING_OUTLINE, 36),
+    new THREE.MeshBasicMaterial({ color: 0x2a0705, transparent: true, opacity: 0.95, depthWrite: false }),
+  );
+  landingEdge.rotation.x = -Math.PI / 2;
+  landingEdge.position.y = GROUND_Y.landing + 0.002;
+  landing.add(landingFill, landingEdge);
+  landing.visible = false;
   const assist = flatDisc(ASSIST_RADIUS, 0x4fd1ff, 0.3, GROUND_Y.assist);
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(0.5, 1, RING_SEGMENTS, 1),
@@ -123,6 +154,24 @@ export function createMarkers(): MarkersView {
     textures.set(tier, makeLabelTexture(text, color));
   }
   const texts: FloatingText[] = [];
+
+  // Point de vigilance 5 : les textes sont dessinés tout de suite en police de repli, puis redessinés
+  // dans la police du jeu une fois chargée (jamais invisibles).
+  let disposed = false;
+  const redrawLabels = (): void => {
+    if (disposed) return;
+    for (const [tier, tex] of textures) {
+      const label = TIER_LABELS[tier];
+      drawLabel(tex.image as HTMLCanvasElement, label.text, label.color, 56);
+      tex.needsUpdate = true;
+    }
+  };
+  if (typeof document !== 'undefined' && document.fonts) {
+    const fonts = document.fonts;
+    void Promise.all([fonts.load(`bold 56px ${LABEL_FONT}`).catch(() => []), fonts.ready])
+      .then(redrawLabels)
+      .catch(() => undefined);
+  }
 
   const spawn = (tier: QualityTier, playerId: number, time: number, pos: Vec3 | null): void => {
     const map = textures.get(tier);
@@ -161,6 +210,7 @@ export function createMarkers(): MarkersView {
         const p = landingPoint(curr.ball.traj);
         landing.position.x = p.x;
         landing.position.z = p.z;
+        landing.scale.setScalar(1 + LANDING_PULSE.amplitude * Math.sin(time * LANDING_PULSE.speed));
       }
 
       assist.visible = overlay.assistZone !== null;
@@ -190,11 +240,14 @@ export function createMarkers(): MarkersView {
         }
         const live = positionOf(ft.playerId) ?? ft.anchor;
         ft.sprite.position.set(live.x, live.y + TEXT_START_HEIGHT + age * TEXT_RISE_SPEED, live.z);
+        const pop = popScale(age);
+        ft.sprite.scale.set(TEXT_SCALE.x * pop, TEXT_SCALE.y * pop, 1);
         const fade = Math.max(0, (age / TEXT_SECONDS - TEXT_FADE_FROM) / (1 - TEXT_FADE_FROM));
         ft.sprite.material.opacity = 1 - fade;
       }
     },
     dispose() {
+      disposed = true;
       disposeObject(group);
       for (const tex of textures.values()) tex.dispose();
       textures.clear();

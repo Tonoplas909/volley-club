@@ -1,12 +1,13 @@
 import * as THREE from 'three';
 import { TUNING } from '../sim/tuning';
+import { addOutline, disposeToon, toonMaterial } from './toon';
 
 const { halfWidth, halfLength, netHeight } = TUNING.court;
 
 const SAND_WIDTH = 24;
 const SAND_LENGTH = 32;
 const FAR_SAND_SIZE = 240;
-const LINE_WIDTH = 0.08;
+const LINE_WIDTH = 0.14;
 const LINE_Y = 0.01;
 const POST_X = halfWidth + 0.6;
 const POST_HEIGHT = netHeight + 0.12;
@@ -45,9 +46,9 @@ function skyTexture(): THREE.CanvasTexture {
   const ctx = canvas.getContext('2d');
   if (ctx) {
     const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    grad.addColorStop(0, '#3f8fe0');
-    grad.addColorStop(0.6, '#9ccff2');
-    grad.addColorStop(1, '#f3e7c9');
+    grad.addColorStop(0, '#2f7df0');
+    grad.addColorStop(0.6, '#8fd3ff');
+    grad.addColorStop(1, '#ffe2a8');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
@@ -98,7 +99,7 @@ function antennaTexture(): THREE.CanvasTexture {
 function addGround(scene: THREE.Scene): void {
   const far = new THREE.Mesh(
     new THREE.PlaneGeometry(FAR_SAND_SIZE, FAR_SAND_SIZE),
-    new THREE.MeshLambertMaterial({ color: 0xd9c595 }),
+    new THREE.MeshLambertMaterial({ color: 0xe2b25c }),
   );
   far.rotation.x = -Math.PI / 2;
   far.position.y = -0.02;
@@ -107,7 +108,7 @@ function addGround(scene: THREE.Scene): void {
 
   const sand = new THREE.Mesh(
     new THREE.PlaneGeometry(SAND_WIDTH, SAND_LENGTH),
-    new THREE.MeshLambertMaterial({ color: 0xeed9a4 }),
+    new THREE.MeshLambertMaterial({ color: 0xffcf6b }),
   );
   sand.rotation.x = -Math.PI / 2;
   sand.receiveShadow = true;
@@ -133,10 +134,11 @@ function addLines(scene: THREE.Scene): void {
 }
 
 function addNet(scene: THREE.Scene): void {
-  const white = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  const white = toonMaterial(0xffffff);
   const postGeo = new THREE.CylinderGeometry(POST_RADIUS, POST_RADIUS, POST_HEIGHT, 12);
   for (const sx of [-1, 1]) {
-    const post = new THREE.Mesh(postGeo, new THREE.MeshLambertMaterial({ color: 0x9aa3ad }));
+    const post = new THREE.Mesh(postGeo, toonMaterial(0x9aa3ad));
+    addOutline(post).scale.set(1.6, 1.01, 1.6);
     post.position.set(sx * POST_X, POST_HEIGHT / 2, 0);
     post.castShadow = true;
     scene.add(post);
@@ -145,6 +147,7 @@ function addNet(scene: THREE.Scene): void {
   const band = new THREE.Mesh(new THREE.BoxGeometry(2 * POST_X, NET_BAND_HEIGHT, 0.03), white);
   band.position.set(0, netHeight - NET_BAND_HEIGHT / 2, 0);
   band.castShadow = true;
+  addOutline(band).scale.set(1.005, 1.35, 2);
   scene.add(band);
 
   const mesh = new THREE.Mesh(
@@ -200,6 +203,7 @@ export function createScene(): SceneBundle {
     scene,
     dispose() {
       disposeObject(scene);
+      disposeToon();
       sky.dispose();
     },
   };

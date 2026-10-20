@@ -2,9 +2,10 @@ import * as THREE from 'three';
 import { jumpHeightAt } from '../sim/player';
 import type { GameEvent, GameState, Gesture, PendingGesture, PlayerState, Vec3 } from '../sim/types';
 import { disposeObject } from './scene';
+import { addOutline, toonMaterial } from './toon';
 
-const TEAM_COLORS = [0x2f6fe4, 0xf08a24] as const;
-const TEAM_HEAD_COLORS = [0x6f9bf0, 0xf6b36a] as const;
+const TEAM_COLORS = [0x1f6bff, 0xff7a10] as const;
+const TEAM_HEAD_COLORS = [0x7fb0ff, 0xffb46b] as const;
 
 const BODY_RADIUS = 0.26;
 const BODY_LENGTH = 0.9;
@@ -97,9 +98,9 @@ export function createPlayers(): PlayersView {
   armGeo.translate(0, -ARM_LENGTH / 2, 0);
   const noseGeo = new THREE.BoxGeometry(0.1, 0.07, 0.1);
   const ringGeo = new THREE.RingGeometry(HUMAN_RING_INNER, HUMAN_RING_OUTER, 40);
-  const bodyMats = TEAM_COLORS.map((c) => new THREE.MeshLambertMaterial({ color: c }));
-  const headMats = TEAM_HEAD_COLORS.map((c) => new THREE.MeshLambertMaterial({ color: c }));
-  const noseMat = new THREE.MeshLambertMaterial({ color: 0x22262d });
+  const bodyMats = TEAM_COLORS.map((c) => toonMaterial(c));
+  const headMats = TEAM_HEAD_COLORS.map((c) => toonMaterial(c));
+  const noseMat = toonMaterial(0x22262d);
   const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, depthWrite: false });
 
   const views = new Map<number, PlayerView>();
@@ -112,10 +113,12 @@ export function createPlayers(): PlayersView {
     const body = new THREE.Mesh(bodyGeo, bodyMats[t]);
     body.position.y = BODY_CENTER_Y;
     body.castShadow = true;
+    addOutline(body);
     root.add(body);
     const head = new THREE.Mesh(headGeo, headMats[t]);
     head.position.y = HEAD_Y;
     head.castShadow = true;
+    addOutline(head);
     root.add(head);
     const nose = new THREE.Mesh(noseGeo, noseMat);
     nose.position.set(0, HEAD_Y, HEAD_RADIUS);
@@ -125,6 +128,7 @@ export function createPlayers(): PlayersView {
       arm.position.set(i === 0 ? SHOULDER_X : -SHOULDER_X, SHOULDER_Y, 0);
       const mesh = new THREE.Mesh(armGeo, bodyMats[t]);
       mesh.castShadow = true;
+      addOutline(mesh).scale.set(1.45, 1.02, 1.45);
       arm.add(mesh);
       root.add(arm);
     });
