@@ -2,7 +2,7 @@
  * Calculs purs des repères affichés autour du joueur humain (spec § 6.5), sans DOM ni three.
  */
 import { whoTakesBall } from '../sim/ai/decisions';
-import { diveOpportunity } from '../sim/dive';
+import { canDiveToBall } from '../sim/dive';
 import {
   blockSyncScore, contactPoint, evaluatePress, gestureFor, idealPressTick, placementScore, pressDistance,
   timingScore,
@@ -65,16 +65,17 @@ export function expectedGesture(
 }
 
 /**
- * Invitation à plonger (spec Plongeon § 6) : c'est le ballon de l'humain, il n'est pas à portée en
- * courant, et un plongeon est possible (diveOpportunity : recharge prête, joueur désigné, conditions de
- * l'IA du § 5). diveOpportunity est déjà faux pendant la recharge et hors échange : la jauge, pas le
- * bandeau, montre alors l'état du plongeon.
+ * Invitation à plonger (spec Plongeon § 6, décision du contrôleur : « Ruling I1 ») : c'est le ballon de
+ * l'humain (humansBallGesture), il n'est pas à portée en courant, et un plongeon lancé maintenant peut
+ * encore toucher le ballon (canDiveToBall : recharge prête, instant idéal non passé, contact à portée de
+ * glissade). Le bandeau reste donc allumé jusqu'à l'instant idéal, sans la borne « slideTicks avant »
+ * de l'IA (diveOpportunity). Faux pendant la recharge et hors échange : la jauge montre alors l'état.
  */
 export function diveHint(state: GameState, humanId: number | null, cmd: Command): boolean {
   if (humanId === null) return false;
   const expected = expectedGesture(state, humanId, cmd);
   if (expected === null || expected.inReach) return false;
-  return diveOpportunity(state, humanId, cmd) !== null;
+  return canDiveToBall(state, humanId, cmd);
 }
 
 /** Recharge du plongeon : 0 juste après un plongeon, 1 quand il est prêt (diveReadyTick atteint). */

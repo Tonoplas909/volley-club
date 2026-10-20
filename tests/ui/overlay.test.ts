@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { launchTo, positionAt, secondsSince } from '../../src/sim/ball';
+import { diveOpportunity } from '../../src/sim/dive';
 import { initialScore, newRally } from '../../src/sim/rules';
 import { jumpApexTicks } from '../../src/sim/player';
 import { contactPoint, evaluatePress, idealPressTick, timingScore } from '../../src/sim/touch';
@@ -423,6 +424,46 @@ describe('diveHint (spec Plongeon § 6, point de vigilance 5)', () => {
     const ideal = idealPressTick(base, HUMAN, 'reception')!;
     const s = atTick(moved(base, HUMAN, { x: -0.2, z: c.z - 2.2 }), ideal - 20);
     expect(diveHint(s, HUMAN, NEUTRAL)).toBe(false);
+  });
+
+  it('Ruling I1 : l\'invitation reste allumée jusqu\'à l\'instant idéal, au-delà de slideTicks avant', () => {
+    const lead = 10;
+    expect(lead).toBeLessThan(TUNING.dive.slideTicks);
+    const s = ballAt(2.2, lead);
+    expect(expectedGesture(s, HUMAN, NEUTRAL)?.inReach).toBe(false);
+    expect(diveOpportunity(s, HUMAN, NEUTRAL)).toBeNull(); // la règle de l'IA est éteinte...
+    expect(diveHint(s, HUMAN, NEUTRAL)).toBe(true); // ...pas celle de l'ATH
+    for (let l = TUNING.dive.slideTicks + 5; l >= 0; l--) expect(diveHint(ballAt(2.2, l), HUMAN, NEUTRAL)).toBe(true);
+  });
+
+  it('Ruling I1 : éteinte une fois l\'instant idéal passé', () => {
+    expect(diveHint(ballAt(2.2, -1), HUMAN, NEUTRAL)).toBe(false);
+  });
+
+  it('Ruling I1 : toujours éteinte pendant la recharge, même à 10 ticks de l\'instant idéal', () => {
+    const s = ballAt(2.2, 10);
+    const cooling: GameState = {
+      ...s, players: s.players.map((p) => (p.id === HUMAN ? { ...p, diveReadyTick: s.tick + 1 } : p)),
+    };
+    expect(diveHint(cooling, HUMAN, NEUTRAL)).toBe(false);
+  });
+
+  it('Ruling I1 : éteinte à 10 ticks pour le ballon du couloir du coéquipier', () => {
+    const base = rallyState(INTO_TEAMMATE_LANE, 10);
+    const c = contactPoint(base, HUMAN, 'reception')!;
+    const ideal = idealPressTick(base, HUMAN, 'reception')!;
+    const s = atTick(moved(base, HUMAN, { x: -0.2, z: c.z - 2.2 }), ideal - 10);
+    expect(diveHint(s, HUMAN, NEUTRAL)).toBe(false);
+  });
+
+  it('Ruling I1 : éteinte à 10 ticks quand le ballon est à portée en courant', () => {
+    const s = ballAt(0.3, 10);
+    expect(expectedGesture(s, HUMAN, NEUTRAL)?.inReach).toBe(true);
+    expect(diveHint(s, HUMAN, NEUTRAL)).toBe(false);
+  });
+
+  it('Ruling I1 : éteinte si le contact est hors de portée de glissade', () => {
+    expect(diveHint(ballAt(TUNING.dive.distance + TUNING.touch.reach.max + 0.5, 10), HUMAN, NEUTRAL)).toBe(false);
   });
 
   it('hors échange (point marqué) ou sans humain : pas d\'invitation', () => {

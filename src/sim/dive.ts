@@ -77,6 +77,37 @@ export function diveIntent(state: GameState, playerId: number, cmd: Command): Di
 /** Plongeon à jouer : tick d'appui sans bruit (ideal − slideTicks) et direction vers le point de contact. */
 export type DiveOpportunity = { pressTick: number; dir: Vec2 };
 
+/** Distance et direction du joueur au point de contact du geste visé, et si une glissade peut l'y amener. */
+export type DiveApproach = { distance: number; dir: Vec2; divable: boolean };
+
+/**
+ * Approche du point de contact (partagée par l'IA et l'ATH) : distance xz depuis la position actuelle,
+ * direction normalisée (inutilisable à distance nulle), et divable = distance ≤ dive.distance + reach.max. null sans point de contact.
+ */
+export function diveApproach(state: GameState, p: PlayerState, intent: NonNullable<DiveIntent>): DiveApproach | null {
+  const contact = contactPoint(state, p.id, playedGesture(intent.gesture));
+  if (contact === null) return null;
+  const dx = contact.x - p.pos.x;
+  const dz = contact.z - p.pos.z;
+  const distance = Math.hypot(dx, dz);
+  return { distance, dir: { x: dx / distance, z: dz / distance }, divable: distance <= D.distance + TUNING.touch.reach.max };
+}
+
+/**
+ * Un plongeon lancé maintenant peut encore toucher le ballon (invitation de l'ATH, § 6) : le joueur peut
+ * plonger (canStartDive), un ballon est à jouer et son instant idéal n'est ni passé ni trop lointain
+ * (diveIntent), et le point de contact est à portée de glissade. Contrairement à diveOpportunity, il n'y
+ * a pas de borne « slideTicks avant l'instant idéal » : un plongeon tardif touche encore (timing dégradé).
+ * L'appelant juge « pas à portée en courant » et « c'est le ballon de l'humain ».
+ */
+export function canDiveToBall(state: GameState, playerId: number, cmd: Command): boolean {
+  const p = findPlayer(state, playerId);
+  if (!p || !canStartDive(state, playerId)) return false;
+  const intent = diveIntent(state, playerId, cmd);
+  if (intent === null) return false;
+  return diveApproach(state, p, intent)?.divable === true;
+}
+
 /**
  * Le joueur devrait plonger maintenant ou bientôt (§ 5) : il est le joueur désigné (whoTakesBall, ce qui
  * respecte le contrat des couloirs), sa recharge est prête et il peut agir, un ballon est à jouer
@@ -93,16 +124,12 @@ export function diveOpportunity(state: GameState, playerId: number, cmd: Command
   if (intent === null) return null;
   const remaining = intent.ideal - state.tick;
   if (remaining < D.slideTicks) return null;
-  const contact = contactPoint(state, playerId, playedGesture(intent.gesture));
-  if (contact === null) return null;
-  const dx = contact.x - p.pos.x;
-  const dz = contact.z - p.pos.z;
-  const distance = Math.hypot(dx, dz);
-  const { reach } = TUNING.touch;
+  const approach = diveApproach(state, p, intent);
+  if (approach === null) return null;
   const runReach = TUNING.player.maxSpeed * (remaining / TUNING.tickRate) * D.aiRunMargin;
-  if (distance - reach.perfect <= runReach) return null; // atteignable en courant
-  if (distance > D.distance + reach.max) return null; // hors de portée, même en plongeant
-  return { pressTick: intent.ideal - D.slideTicks, dir: { x: dx / distance, z: dz / distance } };
+  if (approach.distance - TUNING.touch.reach.perfect <= runReach) return null; // atteignable en courant
+  if (!approach.divable) return null; // hors de portée, même en plongeant
+  return { pressTick: intent.ideal - D.slideTicks, dir: approach.dir };
 }
 
 /** Position xz pendant/après la glissade (bornée au camp et au terrain). */
