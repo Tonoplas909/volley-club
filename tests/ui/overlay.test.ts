@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { launchTo, positionAt, secondsSince } from '../../src/sim/ball';
 import { initialScore, newRally } from '../../src/sim/rules';
 import { jumpApexTicks } from '../../src/sim/player';
-import { contactPoint, evaluatePress, idealPressTick } from '../../src/sim/touch';
+import { contactPoint, evaluatePress, idealPressTick, timingScore } from '../../src/sim/touch';
 import { TUNING } from '../../src/sim/tuning';
 import type {
   Command, GameState, Gesture, PlayerState, TeamId, Trajectory, Vec2, Vec3,
@@ -336,11 +336,15 @@ describe('explainPress', () => {
     const base = rallyState(set, 10, { toucher: 2, team: 1, touches: 2, gesture: 'set' });
     const s = moved(moved(base, 3, { x: 1, z: 1 }), TEAMMATE, { x: 3, z: -6 });
     const t = idealPressTick(s, HUMAN, 'block')!;
-    const delta = TUNING.touch.block.syncMaxTicks - 1;
-    expect(delta).toBeGreaterThan(TUNING.touch.timing.maxTicks);
+    // Zone parfaite de synchronisation plus large que celle du timing ordinaire : le timing du contre
+    // vaut 1 là où le timing ordinaire serait déjà dégradé (les fenêtres max sont égales depuis la V1.1).
+    const delta = TUNING.touch.block.syncPerfectTicks;
+    expect(delta).toBeGreaterThan(TUNING.touch.timing.perfectTicks);
+    expect(timingScore(delta)).toBeLessThan(1);
     const e = explainPress(s, HUMAN, 'block', t + delta);
-    expect(e.timing).not.toBeNull();
+    expect(e.timing).toBe(1);
     expect(e.distance).toBe(0);
+    expect(explainPress(s, HUMAN, 'block', t + TUNING.touch.block.syncMaxTicks).timing).not.toBeNull();
     expect(explainPress(s, HUMAN, 'block', t + TUNING.touch.block.syncMaxTicks + 1).timing).toBeNull();
   });
 

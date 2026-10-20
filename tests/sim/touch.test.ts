@@ -214,18 +214,20 @@ describe('gestureFor', () => {
 
 describe('scores', () => {
   it('placementScore', () => {
-    expect(placementScore(0.3)).toBe(1);
-    expect(placementScore(0.75)).toBeCloseTo(0.5, 9);
-    expect(placementScore(1.2)).toBeCloseTo(0, 9);
-    expect(placementScore(1.21)).toBeNull();
+    const { perfect, max } = TUNING.touch.reach;
+    expect(placementScore(perfect)).toBe(1);
+    expect(placementScore((perfect + max) / 2)).toBeCloseTo(0.5, 9);
+    expect(placementScore(max)).toBeCloseTo(0, 9);
+    expect(placementScore(max + 0.01)).toBeNull();
   });
 
   it('timingScore', () => {
-    expect(timingScore(3)).toBe(1);
-    expect(timingScore(-3)).toBe(1);
-    expect(timingScore(7.5)).toBeCloseTo(0.5, 9);
-    expect(timingScore(12)).toBeCloseTo(0, 9);
-    expect(timingScore(13)).toBeNull();
+    const { perfectTicks, maxTicks } = TUNING.touch.timing;
+    expect(timingScore(perfectTicks)).toBe(1);
+    expect(timingScore(-perfectTicks)).toBe(1);
+    expect(timingScore((perfectTicks + maxTicks) / 2)).toBeCloseTo(0.5, 9);
+    expect(timingScore(maxTicks)).toBeCloseTo(0, 9);
+    expect(timingScore(maxTicks + 1)).toBeNull();
   });
 
   it('blockSyncScore', () => {
@@ -295,14 +297,16 @@ describe('evaluatePress', () => {
     expect(evaluatePress(s, 0, 'reception')).toBeNull();
   });
 
-  it('en retard de 6 ticks : qualité dégradée', () => {
+  it('en retard (au-delà de la zone parfaite) : qualité dégradée', () => {
+    const { perfectTicks, maxTicks } = TUNING.touch.timing;
+    const delay = perfectTicks + 3;
     const s = atContact();
-    const late = makeState({ tick: s.tick + 6 });
+    const late = makeState({ tick: s.tick + delay });
     late.players[0]!.pos = { ...s.players[0]!.pos };
     const r = evaluatePress(late, 0, 'reception')!;
-    expect(r.timing).toBeCloseTo(1 - 3 / 9, 9);
+    expect(r.timing).toBeCloseTo(1 - 3 / (maxTicks - perfectTicks), 9);
     expect(r.quality).toBeCloseTo(r.placement * r.timing, 12);
-    expect(evaluatePress(makeState({ tick: s.tick + 13 }), 0, 'reception')).toBeNull();
+    expect(evaluatePress(makeState({ tick: s.tick + maxTicks + 1 }), 0, 'reception')).toBeNull();
   });
 
   it('attaque : la position est projetée au sommet du saut', () => {

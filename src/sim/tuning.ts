@@ -8,8 +8,8 @@ export const TUNING = {
   touch: {
     contactHeight: { reception: 0.8, set: 2.2 },
     attackHitHeight: 3.0,
-    reach: { perfect: 0.3, max: 1.2 },
-    timing: { perfectTicks: 3, maxTicks: 12 },
+    reach: { perfect: 0.45, max: 1.5 },
+    timing: { perfectTicks: 5, maxTicks: 18 },
     block: { syncPerfectTicks: 6, syncMaxTicks: 18, halfWidth: 0.6, maxNetDistance: 1.5, maxLateral: 1.5, solidQuality: 0.5 },
     lockTicks: 18,
     flightTime: { reception: 1.6, set: 1.5, attack: 0.6, tip: 1.0, serve: 1.3, block: 0.7 },
@@ -30,9 +30,9 @@ export const TUNING = {
    * systématique face à une attaque droite parfaite (revue finale, I3).
    */
   ai: {
-    easy:   { reactionTicks: 24, positionError: 0.6, timingNoiseTicks: 7.2, blockLateralError: 0.9 },
-    normal: { reactionTicks: 15, positionError: 0.3, timingNoiseTicks: 4.2, blockLateralError: 0.7 },
-    hard:   { reactionTicks: 9,  positionError: 0.1, timingNoiseTicks: 2.1, blockLateralError: 0.4 },
+    easy:   { reactionTicks: 24, positionError: 0.8, timingNoiseTicks: 11, blockLateralError: 0.9 },
+    normal: { reactionTicks: 15, positionError: 0.55, timingNoiseTicks: 7.5, blockLateralError: 0.7 },
+    hard:   { reactionTicks: 9,  positionError: 0.15, timingNoiseTicks: 3.2, blockLateralError: 0.4 },
     /** Le serveur IA lance le ballon ce nombre de ticks après le début de la phase serve. */
     serveDelayTicks: 30,
   },
