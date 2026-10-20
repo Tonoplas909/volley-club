@@ -1,6 +1,7 @@
 /** Phases du match : un gestionnaire par phase, appelé par step() sur une copie de l'état. */
 import { apexTime, launchTo, maxHeight, positionAt, secondsSince } from './ball';
 import { currentServerId, sideOf, startPosition, teamPlayers } from './court';
+import { advancePlayer, beginDive, canStartDive, diveQuality, diveTarget, pendingDiveGesture, playedGesture } from './dive';
 import { jumpApexTicks, jumpDurationTicks, jumpHeightAt, movePlayer, startJump } from './player';
 import { rngRange } from './rng';
 import {
@@ -84,7 +85,8 @@ function phaseElapsed(s: GameState): number {
 
 /** Déplacement libre (phases sans geste possible) : seules les commandes de déplacement comptent. */
 function moveAll(s: GameState, cmdOf: CommandOf): void {
-  s.players = s.players.map((p) => movePlayer(p, clampNorm(cmdOf(p.id).move), s.tick));
+  // Un plongeon commencé pendant l'échange se poursuit (glissade, puis récupération au sol).
+  s.players = s.players.map((p) => advancePlayer(p, clampNorm(cmdOf(p.id).move), s.tick));
 }
 
 // ───────────────────────── placement ─────────────────────────
@@ -184,6 +186,7 @@ export function stepRally(s: GameState, cmdOf: CommandOf): void {
 
   for (let i = 0; i < s.players.length && s.phase === 'rally'; i++) actPlayer(s, i, cmdOf);
   if (s.phase === 'rally') resolvePendingAttacks(s);
+  if (s.phase === 'rally') resolvePendingDives(s);
   if (s.phase === 'rally') moveBall(s, previousPos);
   if (s.phase === 'rally' && s.ball.pos.y <= BALL_RADIUS) {
     const verdict = judgeLanding(s.ball.pos, s.ball.lastTouch, s.score.servingTeam);
@@ -194,12 +197,11 @@ export function stepRally(s: GameState, cmdOf: CommandOf): void {
 function actPlayer(s: GameState, index: number, cmdOf: CommandOf): void {
   const prev = s.players[index]!;
   const cmd = cmdOf(prev.id);
-  const p = movePlayer(prev, clampNorm(cmd.move), s.tick);
+  const p = advancePlayer(prev, clampNorm(cmd.move), s.tick); // glissade si un plongeon est en cours
   if (p.pending?.gesture === 'block' && s.tick >= p.pending.resolveTick) p.pending = null; // saut terminé
   s.players[index] = p;
-  if (!cmd.actionPressed) return;
 
-  const gesture = gestureFor(s, p.id, cmd);
+  const gesture = cmd.actionPressed ? gestureFor(s, p.id, cmd) : null;
   switch (gesture) {
     case 'reception':
     case 'set':
@@ -211,6 +213,11 @@ function actPlayer(s: GameState, index: number, cmdOf: CommandOf): void {
       break;
     default:
       break; // appui ignoré (aucun geste, ou service hors phase serve)
+  }
+  // Plongeon : seulement si l'appui Action n'a produit aucun geste à ce tick (Action prioritaire).
+  if (gesture === null && cmd.divePressed && canStartDive(s, p.id)) {
+    s.players[index] = beginDive(s, p.id, cmd);
+    s.events.push({ type: 'dive', playerId: p.id });
   }
 }
 
@@ -253,6 +260,27 @@ function resolvePendingAttacks(s: GameState): void {
     if (!countTouch(s, p)) return;
     const ideal = idealTarget(s, p.id, 'attack', pending.aim);
     applyTouch(s, p, 'attack', pending.quality, deviated(s, ideal, pending.quality, 'attack'));
+  }
+}
+
+/** Plongeons en attente : réception d'urgence résolue à l'instant idéal (spec Plongeon § 4). */
+function resolvePendingDives(s: GameState): void {
+  for (const p of s.players) {
+    const pending = p.pending;
+    if (pending?.gesture !== 'dive' || s.tick < pending.resolveTick) continue;
+    p.pending = null;
+    // Ballon rejoué depuis le départ (coéquipier, filet…) : raté, sans double touche.
+    const sameBall = s.ball.traj.startTick <= pending.pressTick;
+    const aimed = pendingDiveGesture(s, p);
+    const quality = sameBall ? diveQuality(s, p.id, aimed, pending.pressTick) : null;
+    const gesture = sameBall ? playedGesture(aimed) : 'reception';
+    if (quality === null) {
+      s.events.push({ type: 'whiff', playerId: p.id, gesture });
+      continue;
+    }
+    if (!countTouch(s, p)) return;
+    const target = deviated(s, diveTarget(s, p.id, aimed, pending.aim), quality, gesture, TUNING.dive.errorFactor);
+    applyTouch(s, p, gesture, quality, target, true);
   }
 }
 
@@ -338,18 +366,19 @@ function countTouch(s: GameState, p: PlayerState): boolean {
   return true;
 }
 
-function deviated(s: GameState, ideal: TouchTarget, quality: number, gesture: Gesture): TouchTarget {
-  const d = deviate(ideal, quality, gesture, s.rng);
+function deviated(s: GameState, ideal: TouchTarget, quality: number, gesture: Gesture, errorScale = 1): TouchTarget {
+  const d = deviate(ideal, quality, gesture, s.rng, errorScale);
   s.rng = d.rng;
   return { target: d.target, flightTime: d.flightTime };
 }
 
-/** Relance le ballon depuis sa position courante et émet l'événement `touch`. */
-function applyTouch(s: GameState, p: PlayerState, gesture: Gesture, quality: number, to: TouchTarget): void {
+/** Relance le ballon depuis sa position courante et émet l'événement `touch` (`dive: true` pour un plongeon). */
+function applyTouch(s: GameState, p: PlayerState, gesture: Gesture, quality: number, to: TouchTarget, dive = false): void {
   s.ball.mode = 'flying';
   s.ball.traj = launchTo(s.ball.pos, to.target, to.flightTime, s.tick);
   s.ball.lastTouch = { playerId: p.id, team: p.team, gesture, tick: s.tick };
-  s.events.push({ type: 'touch', playerId: p.id, gesture, quality, tier: qualityTier(quality) });
+  const tier = qualityTier(quality);
+  s.events.push({ type: 'touch', playerId: p.id, gesture, quality, tier, ...(dive ? { dive: true as const } : {}) });
 }
 
 // ───────────────────────── points et fins de set ─────────────────────────
@@ -374,6 +403,7 @@ function resetGestures(s: GameState): void {
     p.pending = null;
     p.lockedUntilTick = 0;
     p.jumpStartTick = null;
+    p.dive = null; // la recharge (diveReadyTick) continue d'un point à l'autre
   }
 }
 

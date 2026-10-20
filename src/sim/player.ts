@@ -63,7 +63,8 @@ function steerVelocity(vel: Vec2, move: Vec2): Vec2 {
   return { x: vel.x + dx * k, z: vel.z + dz * k };
 }
 
-function clampToSide(pos: Vec3, team: TeamId): Vec3 {
+/** Borne une position au camp de l'équipe (sans toucher le filet) et aux limites de jeu. */
+export function clampToSide(pos: Vec3, team: TeamId): Vec3 {
   const side = sideOf(team);
   const x = Math.min(Math.max(pos.x, -MAX_ABS_X), MAX_ABS_X);
   let z = Math.min(Math.max(pos.z, -MAX_ABS_Z), MAX_ABS_Z);

@@ -327,15 +327,17 @@ export function idealTarget(state: GameState, playerId: number, gesture: Gesture
 /**
  * Dévie une trajectoire idéale selon la qualité q ∈ [0, 1] : décalage de la cible dans un disque,
  * variation du temps de vol, et pour l'attaque une profondeur réduite (ballon plus lent et plus bas).
+ * `errorScale` multiplie le rayon d'erreur errorMax[gesture] (plongeon : dive.errorFactor).
  */
 export function deviate(
   ideal: TouchTarget,
   q: number,
   gesture: Gesture,
   rng: number,
+  errorScale = 1,
 ): TouchTarget & { rng: number } {
   const miss = 1 - q;
-  const offset = rngInDisc(rng, miss * T.errorMax[gesture]);
+  const offset = rngInDisc(rng, miss * T.errorMax[gesture] * errorScale);
   const u = rngRange(offset.state, -1, 1);
   const depthFactor = gesture === 'attack'
     ? ATTACK_DEPTH_KEPT_AT_ZERO + (1 - ATTACK_DEPTH_KEPT_AT_ZERO) * q
