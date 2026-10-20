@@ -51,3 +51,10 @@ Task 5: complete (commits a862740..587dfb9, review clean)
 Task 5: ⚠️ affichage DOM jugé sur captures (pas de test DOM) : bandeau, jauge, carte, menu conformes.
 Task 5: minor (deferred): whiff de plongeon déduit de PlayerState.dive (invariant maxLeadTicks < slide+recovery, à protéger par un test ou un drapeau dive sur whiff) ; debug « dernière qualité » à 0/0 pour un plongeon ; assertion non nulle s.pendingExplanation! ; test « jauge vide juste après le départ » n'asserte pas diveReadiness ; possible chevauchement jauge / mini-carte vers 761 px de large ; DIVE_TAG / DIVE_GAUGE_LABEL sans test
 TOUTES LES TÂCHES TERMINÉES. Revue finale (opus) sur 3537d76..HEAD.
+FINAL REVIEW (opus, 3537d76..d41160f) : merge avec correctifs — 0 Critical, 1 Important (I1 : diveHint reprend le critère IA « ideal − tick ≥ slideTicks » → le bandeau s'éteint au moment d'appuyer, visible 3 à 13 ticks), 1 mineure à corriger (TICKS_PER_SECOND en dur dans render/players.ts, réutiliser diveEndTick). Nouvelles mineures : M2 sim/dive → sim/ai/decisions (après merge), M3 jauge « prête » ~1,5 tick trop tôt, M4 test d'invariant des ratés de plongeon. Rapport : final-review.md
+Ruling: I1 — le bandeau « PLONGEON — … » reste allumé jusqu'à l'instant idéal tant qu'un plongeon peut encore toucher le ballon (recharge prête, glissade + portée suffisantes), au lieu de reprendre le critère d'anticipation de l'IA — la spec § 6 vise la lisibilité ; un bandeau de 100 ms la contredit — coût si faux : un bandeau affiché quelques ticks de plus que la lettre de la spec, réversible.
+FINAL FIX WAVE: sonnet DONE (84f699c I1, 7e25541 tickRate/diveEndTick, 6257812 M3 diveGaugeView, cba9374 M4) — 377/377 tests ; re-revue en cours
+FINAL FIX WAVE: re-revue sonnet — I1, tickRate/diveEndTick, M3, M4 ADDRESSED, aucune casse. Contrôleur : 377/377, typecheck et build OK.
+Final review: minors M2 (sim/dive importe sim/ai/decisions) et M5 du rapport final laissés en l'état — non bloquants, à traiter après le merge — coût si faux : dette de couches mineure.
+Final review: complete (commits d41160f..cba9374, review clean après une vague de correctifs).
+PLONGEON COMPLET.
