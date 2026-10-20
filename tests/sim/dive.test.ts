@@ -516,3 +516,11 @@ describe('pureté et déterminisme', () => {
     expect(JSON.stringify(a.states)).toBe(JSON.stringify(b.states));
   });
 });
+
+describe('invariants de réglage', () => {
+  it('maxLeadTicks < slideTicks + recoveryTicks : frame.ts déduit un raté de plongeon de PlayerState.dive', () => {
+    // src/frame.ts (réaction aux événements `whiff`) suppose que la résolution d'un plongeon (au plus
+    // maxLeadTicks après le départ) a lieu avant la fin du plongeon : sinon `dive` serait déjà null.
+    expect(D.maxLeadTicks).toBeLessThan(D.slideTicks + D.recoveryTicks);
+  });
+});
