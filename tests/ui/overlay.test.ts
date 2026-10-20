@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { launchTo, positionAt, secondsSince } from '../../src/sim/ball';
-import { diveOpportunity } from '../../src/sim/dive';
+import { canStartDive, diveOpportunity } from '../../src/sim/dive';
 import { initialScore, newRally } from '../../src/sim/rules';
 import { jumpApexTicks } from '../../src/sim/player';
 import { contactPoint, evaluatePress, idealPressTick, timingScore } from '../../src/sim/touch';
@@ -9,7 +9,7 @@ import type {
   Command, GameState, Gesture, PlayerState, TeamId, Trajectory, Vec2, Vec3,
 } from '../../src/sim/types';
 import {
-  TIMING_RING_TICKS, diveHint, diveReadiness, expectedGesture, explainPress, timingRing,
+  TIMING_RING_TICKS, diveGaugeView, diveHint, diveReadiness, expectedGesture, explainPress, timingRing,
 } from '../../src/ui/overlay';
 
 const R = TUNING.ball.radius;
@@ -493,6 +493,24 @@ describe('diveReadiness', () => {
     expect(diveReadiness(state(100 + COOLDOWN, 100 + COOLDOWN / 2), HUMAN)).toBeCloseTo(0.5, 9);
     expect(diveReadiness(state(100 + COOLDOWN, 100 + COOLDOWN), HUMAN)).toBe(1);
     expect(diveReadiness(state(100 + COOLDOWN, 100 + COOLDOWN + 50), HUMAN)).toBe(1);
+  });
+
+  it('M3 : vaut 1 exactement quand un plongeon peut démarrer (tick ≥ diveReadyTick), pas avant', () => {
+    for (const t of [COOLDOWN - 3, COOLDOWN - 2, COOLDOWN - 1, COOLDOWN, COOLDOWN + 1]) {
+      const s = state(COOLDOWN, t);
+      expect(diveReadiness(s, HUMAN) >= 1).toBe(canStartDive(s, HUMAN));
+    }
+    expect(diveReadiness(state(COOLDOWN, COOLDOWN - 1), HUMAN)).toBeLessThan(1);
+  });
+
+  it('M3 : la jauge n\'est « prête » que quand diveReadiness vaut 1, et ne remplit pas 100 % avant', () => {
+    const before = diveGaugeView(diveReadiness(state(COOLDOWN, COOLDOWN - 1), HUMAN));
+    expect(before.ready).toBe(false);
+    expect(before.fill).toBeLessThan(100);
+    expect(diveGaugeView(diveReadiness(state(COOLDOWN, COOLDOWN), HUMAN))).toEqual({ fill: 100, ready: true });
+    expect(diveGaugeView(0)).toEqual({ fill: 0, ready: false });
+    expect(diveGaugeView(0.5)).toEqual({ fill: 50, ready: false });
+    expect(diveGaugeView(7)).toEqual({ fill: 100, ready: true });
   });
 
   it('borné à [0, 1] et 1 pour un joueur inconnu', () => {

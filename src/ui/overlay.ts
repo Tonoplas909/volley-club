@@ -87,6 +87,16 @@ export function diveReadiness(state: GameState, playerId: number): number {
 }
 
 /**
+ * Affichage de la jauge de recharge : remplissage en % (arrondi, jamais 100 tant que le plongeon n'est pas
+ * prêt) et état « prêt », vrai exactement quand diveReadiness vaut 1 (tick ≥ diveReadyTick).
+ */
+export function diveGaugeView(readiness: number): { fill: number; ready: boolean } {
+  const r = Math.min(Math.max(readiness, 0), 1);
+  const ready = r >= 1;
+  return { fill: ready ? 100 : Math.min(Math.round(r * 100), 99), ready };
+}
+
+/**
  * Anneau de timing : 1 = ouvert (30 ticks avant), 0 = instant idéal ; null = masqué.
  * Il n'apparaît que si c'est à l'humain de jouer ce ballon (humansBallGesture), dans les 30 ticks
  * qui précèdent l'instant idéal, et s'il est à portée.

@@ -1,3 +1,4 @@
+import { diveGaugeView } from './overlay';
 import { DIVE_GAUGE_LABEL } from './texts';
 
 export interface DiveGauge {
@@ -48,11 +49,11 @@ export function createDiveGauge(root: HTMLElement): DiveGauge {
     update(readiness): void {
       gauge.hidden = readiness === null;
       if (readiness === null) return;
-      const fill = Math.round(Math.min(Math.max(readiness, 0), 1) * 100);
+      const { fill, ready } = diveGaugeView(readiness);
       if (fill === shown) return;
       shown = fill;
       gauge.style.setProperty('--fill', `${fill}%`);
-      gauge.classList.toggle('ready', fill >= 100);
+      gauge.classList.toggle('ready', ready);
     },
     dispose(): void {
       gauge.remove();
