@@ -85,6 +85,8 @@ export function createFx(options: { reducedMotion?: boolean; seed?: number } = {
         else if (e.gesture === 'block') requestShake(shakeTuning.block);
       } else if (e.type === 'point' && (e.reason === 'landedIn' || e.reason === 'out')) {
         requestShake(shakeTuning.landing);
+      } else if (e.type === 'dive') {
+        requestShake(shakeTuning.dive);
       }
     }
   }

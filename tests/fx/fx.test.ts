@@ -241,3 +241,41 @@ describe('fx : déterminisme', () => {
     expect(run(1)).not.toEqual(run(2));
   });
 });
+
+describe('fx : plongeon', () => {
+  const dive: GameEvent = { type: 'dive', playerId: 0 };
+
+  it("l'événement dive donne une vibration d'au plus 0,08", () => {
+    const fx = createFx();
+    fx.onEvents([dive], calm);
+    const f = fx.advance(0.016);
+    expect(Math.abs(f.shake.x)).toBeLessThanOrEqual(0.08);
+    expect(Math.abs(f.shake.y)).toBeLessThanOrEqual(0.08);
+    expect(Math.abs(f.shake.x) + Math.abs(f.shake.y)).toBeGreaterThan(0);
+  });
+
+  it('reducedMotion : la vibration du plongeon est (0, 0)', () => {
+    const fx = createFx({ reducedMotion: true });
+    fx.onEvents([dive], calm);
+    for (let i = 0; i < 10; i++) expect(fx.advance(0.016).shake).toEqual({ x: 0, y: 0 });
+  });
+
+  it("ne cumule pas : une vibration plus forte reste, un plongeon ne la remplace pas", () => {
+    const fx = createFx();
+    fx.onEvents([touch('block', 'ok')], calm); // 0,2
+    fx.onEvents([dive], calm); // 0,08 : plus faible, ignoré
+    let max = 0;
+    for (let i = 0; i < 40; i++) {
+      const f = fx.advance(0.001);
+      max = Math.max(max, Math.abs(f.shake.x), Math.abs(f.shake.y));
+    }
+    expect(max).toBeGreaterThan(0.08);
+    expect(max).toBeLessThanOrEqual(0.2);
+  });
+
+  it("un plongeon n'arrête pas l'image (pas de gel)", () => {
+    const fx = createFx();
+    fx.onEvents([dive], calm);
+    expect(fx.advance(0.016).timeScale).toBe(1);
+  });
+});

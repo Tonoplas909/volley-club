@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { jumpHeightAt } from '../sim/player';
-import type { GameEvent, GameState, Gesture, PendingGesture, PlayerState, Vec3 } from '../sim/types';
+import { TUNING } from '../sim/tuning';
+import type { DiveState, GameEvent, GameState, Gesture, PendingGesture, PlayerState, Vec3 } from '../sim/types';
 import { disposeObject } from './scene';
 import { addOutline, toonMaterial } from './toon';
 
@@ -29,6 +30,20 @@ const ARM_RATE = 24;
 const HOLD_SECONDS = 0.5;
 const STRIKE_SECONDS = 0.3;
 
+/** La simulation avance à 60 Hz (1 tick = 1/60 s). */
+const TICKS_PER_SECOND = 60;
+/** Plongeon : durée (s) du relevé, à la fin de la récupération. */
+const STAND_UP_SECONDS = 0.2;
+/** Plongeon : le corps bascule d'un quart de tour, à l'horizontale. */
+const DIVE_TILT = Math.PI / 2;
+/** Plongeon : hauteur (m) de l'axe du corps allongé, pour qu'il repose sur le sable. */
+const DIVE_LIE_Y = BODY_RADIUS;
+/** Plongeon : hauteur (m) du point autour duquel le corps bascule (milieu pieds-bras tendus). */
+const DIVE_PIVOT_Y = 0.95;
+const DIVE_TOTAL_TICKS = TUNING.dive.slideTicks + TUNING.dive.recoveryTicks;
+/** Âge (ticks) du plongeon où le joueur commence à se relever. */
+const DIVE_STAND_UP_AT = DIVE_TOTAL_TICKS - STAND_UP_SECONDS * TICKS_PER_SECOND;
+
 type ArmPose = { pitch: number; inward: number };
 type Pose = readonly [ArmPose, ArmPose];
 
@@ -41,6 +56,8 @@ const POSES = {
   cock: [{ pitch: UP - 0.2, inward: 0.1 }, { pitch: -Math.PI - 0.5, inward: 0 }],
   strike: [{ pitch: -0.5, inward: -0.1 }, { pitch: -0.7, inward: 0 }],
   toss: [{ pitch: UP - 0.2, inward: 0.1 }, { pitch: -0.2, inward: -0.1 }],
+  /** Bras tendus dans le prolongement du corps, donc vers l'avant une fois basculé. */
+  dive: [{ pitch: -Math.PI, inward: 0.08 }, { pitch: -Math.PI, inward: 0.08 }],
 } as const satisfies Record<string, Pose>;
 
 type Anim = { gesture: Gesture; start: number };
@@ -68,8 +85,28 @@ function wrapAngle(a: number): number {
   return Math.atan2(Math.sin(a), Math.cos(a));
 }
 
+function smoothstep(u: number): number {
+  const k = Math.min(1, Math.max(0, u));
+  return k * k * (3 - 2 * k);
+}
+
+/**
+ * Angle de bascule (0 = debout, π/2 = allongé) d'un plongeon au tick de jeu `tick` (fractionnaire).
+ * Il se déduit du seul `dive.startTick` : bascule pendant la 1re moitié de la glissade, allongé
+ * jusqu'aux dernières STAND_UP_SECONDS de la récupération, puis relevé. Debout (0) dès la fin de
+ * `slideTicks + recoveryTicks`, même si `dive` reste non nul (phase pointScored).
+ */
+export function diveTilt(dive: Pick<DiveState, 'startTick'>, tick: number): number {
+  const age = tick - dive.startTick;
+  if (age >= DIVE_TOTAL_TICKS) return 0;
+  const tiltTicks = TUNING.dive.slideTicks / 2;
+  if (age < tiltTicks) return DIVE_TILT * smoothstep(age / tiltTicks);
+  if (age < DIVE_STAND_UP_AT) return DIVE_TILT;
+  return DIVE_TILT * (1 - smoothstep((age - DIVE_STAND_UP_AT) / (DIVE_TOTAL_TICKS - DIVE_STAND_UP_AT)));
+}
+
 function poseFor(pending: PendingGesture | null, anim: Anim | undefined, time: number): Pose {
-  if (pending) {
+  if (pending && pending.gesture !== 'dive') {
     if (pending.gesture === 'attack') return POSES.cock;
     if (pending.gesture === 'block') return POSES.block;
     return POSES.toss;
@@ -110,6 +147,8 @@ export function createPlayers(): PlayersView {
   const build = (p: PlayerState): PlayerView => {
     const t = p.team;
     const root = new THREE.Group();
+    // Cap d'abord, bascule ensuite autour de l'axe latéral du joueur (plongeon).
+    root.rotation.order = 'YXZ';
     const body = new THREE.Mesh(bodyGeo, bodyMats[t]);
     body.position.y = BODY_CENTER_Y;
     body.castShadow = true;
@@ -177,17 +216,32 @@ export function createPlayers(): PlayersView {
         const jumper = cp.jumpStartTick !== null ? cp : pp;
         const y = jumper.jumpStartTick !== null ? jumpHeightAt(jumper, renderTick) : pp.pos.y + (cp.pos.y - pp.pos.y) * alpha;
         view.pos = { x, y, z };
-        view.group.position.set(x, y, z);
+
+        // Plongeon : pose déduite de dive.startTick et du tick de jeu interpolé (donc figée pendant un gel).
+        // `dive` peut rester non nul toute la phase pointScored : passé diveEnd, le joueur est debout.
+        const dive = cp.dive;
+        const diveAge = dive ? renderTick - dive.startTick : 0;
+        const diving = dive !== null && diveAge < DIVE_TOTAL_TICKS;
+        const tilt = dive ? diveTilt(dive, renderTick) : 0;
 
         // Orientation : vers la vitesse en mouvement, vers le ballon à l'arrêt (spec § 5).
         const vx = pp.vel.x + (cp.vel.x - pp.vel.x) * alpha;
         const vz = pp.vel.z + (cp.vel.z - pp.vel.z) * alpha;
         const target =
           Math.hypot(vx, vz) > STILL_SPEED ? Math.atan2(vx, vz) : Math.atan2(ball.x - x, ball.z - z);
-        view.yaw = fresh ? target : view.yaw + wrapAngle(target - view.yaw) * turnK;
+        if (diving && dive) view.yaw = Math.atan2(dive.dir.x, dive.dir.z);
+        else view.yaw = fresh ? target : view.yaw + wrapAngle(target - view.yaw) * turnK;
         view.group.rotation.y = view.yaw;
+        view.group.rotation.x = tilt;
+        // Le corps bascule autour de son milieu (pas des pieds) et repose sur le sable.
+        const back = -DIVE_PIVOT_Y * Math.sin(tilt);
+        view.group.position.set(
+          x + Math.sin(view.yaw) * back,
+          y + DIVE_LIE_Y * Math.sin(tilt),
+          z + Math.cos(view.yaw) * back,
+        );
 
-        const pose = poseFor(cp.pending, anims.get(cp.id), time);
+        const pose = diving && diveAge < DIVE_STAND_UP_AT ? POSES.dive : poseFor(cp.pending, anims.get(cp.id), time);
         for (let a = 0; a < 2; a++) {
           const arm = pose[a] as ArmPose;
           view.armPitch[a] = fresh ? arm.pitch : (view.armPitch[a] ?? 0) + (arm.pitch - (view.armPitch[a] ?? 0)) * armK;
