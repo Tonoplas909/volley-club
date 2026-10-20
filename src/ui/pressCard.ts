@@ -1,9 +1,15 @@
 import { TUNING } from '../sim/tuning';
 import type { QualityTier } from '../sim/types';
 import type { PressExplanation } from './overlay';
-import { hintText, missReasonText, tierBanner } from './texts';
+import { DIVE_TAG, hintText, missReasonText, tierBanner } from './texts';
 
-export type LastPressView = { tier: QualityTier; explanation: PressExplanation; at: number };
+export type LastPressView = {
+  tier: QualityTier;
+  explanation: PressExplanation;
+  /** Touche ou raté en plongeon : pas de barres ni de cause (explainPress ne s'applique pas). */
+  dive: boolean;
+  at: number;
+};
 
 export interface PressCard {
   update(lastPress: LastPressView | null, now: number): void;
@@ -44,11 +50,15 @@ export function createPressCard(root: HTMLElement): PressCard {
   card.hidden = true;
   const tierEl = document.createElement('div');
   tierEl.className = 'press-tier';
+  const diveTag = document.createElement('div');
+  diveTag.className = 'press-dive';
+  diveTag.textContent = DIVE_TAG;
+  diveTag.hidden = true;
   const placement = bar('Placement');
   const timing = bar('Timing');
   const cause = document.createElement('div');
   cause.className = 'press-cause';
-  card.append(tierEl, placement.row, timing.row, cause);
+  card.append(tierEl, diveTag, placement.row, timing.row, cause);
   root.append(card);
 
   let shownAt: number | null = null;
@@ -61,18 +71,25 @@ export function createPressCard(root: HTMLElement): PressCard {
         return;
       }
       card.hidden = false;
-      const { tier, explanation } = lastPress;
+      const { tier, explanation, dive } = lastPress;
       setText(tierEl, tierBanner(tier));
       for (const t of TIERS) card.classList.toggle(`tier-${t}`, t === tier);
-      const p = percent(explanation.placement);
-      const t = percent(explanation.timing);
-      placement.fill.style.width = `${p}%`;
-      timing.fill.style.width = `${t}%`;
-      setText(placement.value, `${p} %`);
-      setText(timing.value, `${t} %`);
-      const text = tier === 'miss' ? missReasonText(explanation) : hintText(explanation);
-      cause.hidden = text === null;
-      setText(cause, text ?? '');
+      diveTag.hidden = !dive;
+      placement.row.hidden = dive;
+      timing.row.hidden = dive;
+      if (dive) {
+        cause.hidden = true;
+      } else {
+        const p = percent(explanation.placement);
+        const t = percent(explanation.timing);
+        placement.fill.style.width = `${p}%`;
+        timing.fill.style.width = `${t}%`;
+        setText(placement.value, `${p} %`);
+        setText(timing.value, `${t} %`);
+        const text = tier === 'miss' ? missReasonText(explanation) : hintText(explanation);
+        cause.hidden = text === null;
+        setText(cause, text ?? '');
+      }
       // Rejoue l'animation d'entrée à chaque nouvel appui.
       if (shownAt !== lastPress.at) {
         shownAt = lastPress.at;

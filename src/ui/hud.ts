@@ -1,4 +1,5 @@
 import type { GameState, Gesture } from '../sim/types';
+import { createDiveGauge } from './diveGauge';
 import { createGestureBanner } from './gestureBanner';
 import { createMinimap } from './minimap';
 import { createPressCard, type LastPressView } from './pressCard';
@@ -11,6 +12,10 @@ export interface HudView {
   expected: { gesture: Gesture; inReach: boolean; servePhase: 'toss' | 'strike' | null } | null;
   /** Périphérique de la dernière entrée (icône de touche du bandeau). */
   device: 'keyboard' | 'gamepad';
+  /** Un plongeon est possible sur ce ballon (le bandeau l'invite à plonger). */
+  diveHint: boolean;
+  /** Recharge du plongeon de l'humain, de 0 (vient de plonger) à 1 (prêt). */
+  diveReadiness: number;
   /** Dernier appui de l'humain ; `at` en secondes réelles (performance.now() / 1000). */
   lastPress: LastPressView | null;
   /** Secondes réelles. */
@@ -85,7 +90,14 @@ export function createHud(root: HTMLElement, actions: HudActions): Hud {
 
   container.append(board, message, pause, debug);
   root.append(container);
-  const banner = createGestureBanner(container);
+  // Le bandeau et la jauge de recharge partagent un support : le bandeau y garde une largeur minimale,
+  // pour que la jauge ne bouge pas quand il apparaît ou disparaît.
+  const dock = el('div', 'banner-dock');
+  const slot = el('div', 'banner-slot');
+  dock.append(slot);
+  container.append(dock);
+  const banner = createGestureBanner(slot);
+  const gauge = createDiveGauge(dock);
   const card = createPressCard(container);
   const minimap = createMinimap(container);
 
@@ -134,7 +146,8 @@ export function createHud(root: HTMLElement, actions: HudActions): Hud {
         const touch = view.lastPress === null ? '—' : tierText(view.lastPress.tier);
         setText(debug, `Debug · ralenti ×0,25 · dernière touche : ${touch}`);
       }
-      banner.update(view.paused ? null : view.expected, view.device);
+      banner.update(view.paused ? null : view.expected, view.device, view.diveHint);
+      gauge.update(humanId === null ? null : view.diveReadiness);
       card.update(view.lastPress, view.now);
       minimap.update(state, humanId);
     },
@@ -145,6 +158,8 @@ export function createHud(root: HTMLElement, actions: HudActions): Hud {
       replay.removeEventListener('click', actions.onReplay);
       menu.removeEventListener('click', actions.onMenu);
       banner.dispose();
+      gauge.dispose();
+      dock.remove();
       card.dispose();
       minimap.dispose();
       container.remove();

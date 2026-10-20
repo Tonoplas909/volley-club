@@ -2,6 +2,7 @@
  * Calculs purs des repères affichés autour du joueur humain (spec § 6.5), sans DOM ni three.
  */
 import { whoTakesBall } from '../sim/ai/decisions';
+import { diveOpportunity } from '../sim/dive';
 import {
   blockSyncScore, contactPoint, evaluatePress, gestureFor, idealPressTick, placementScore, pressDistance,
   timingScore,
@@ -61,6 +62,27 @@ export function expectedGesture(
   if (gesture === 'serve') return { gesture, inReach: true };
   const ideal = idealPressTick(state, human.id, gesture);
   return { gesture, inReach: ideal !== null && isInReach(state, human, gesture, ideal) };
+}
+
+/**
+ * Invitation à plonger (spec Plongeon § 6) : c'est le ballon de l'humain, il n'est pas à portée en
+ * courant, et un plongeon est possible (diveOpportunity : recharge prête, joueur désigné, conditions de
+ * l'IA du § 5). diveOpportunity est déjà faux pendant la recharge et hors échange : la jauge, pas le
+ * bandeau, montre alors l'état du plongeon.
+ */
+export function diveHint(state: GameState, humanId: number | null, cmd: Command): boolean {
+  if (humanId === null) return false;
+  const expected = expectedGesture(state, humanId, cmd);
+  if (expected === null || expected.inReach) return false;
+  return diveOpportunity(state, humanId, cmd) !== null;
+}
+
+/** Recharge du plongeon : 0 juste après un plongeon, 1 quand il est prêt (diveReadyTick atteint). */
+export function diveReadiness(state: GameState, playerId: number): number {
+  const player = state.players.find((p) => p.id === playerId);
+  if (!player) return 1;
+  const remaining = (player.diveReadyTick - state.tick) / TUNING.dive.cooldownTicks;
+  return 1 - Math.min(Math.max(remaining, 0), 1);
 }
 
 /**

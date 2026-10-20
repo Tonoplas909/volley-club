@@ -15,6 +15,7 @@ const HUMAN_PLAYER_ID = 0;
 const CONTROLS: readonly (readonly [string, string])[] = [
   ['Déplacement', 'ZQSD ou flèches · stick gauche'],
   ['Action (servir, passer, attaquer, contrer)', 'Espace · bouton A'],
+  ['Plongeon', 'Maj · bouton B'],
   ['Visée', 'direction tenue au moment de l’appui'],
   ['Pause', 'Échap · Start'],
   ['Debug et ralenti', 'F1'],

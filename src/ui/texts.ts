@@ -48,6 +48,17 @@ export function deviceKeyLabel(device: 'keyboard' | 'gamepad'): string {
   return device === 'gamepad' ? 'A' : 'Espace';
 }
 
+/** Invitation à plonger du bandeau, avec la touche du périphérique. */
+export function diveHintText(device: 'keyboard' | 'gamepad'): string {
+  return `PLONGEON — ${device === 'gamepad' ? 'B' : 'Maj'}`;
+}
+
+/** Infobulle de la jauge de recharge. */
+export const DIVE_GAUGE_LABEL = 'Recharge du plongeon';
+
+/** Mention de la carte du geste pour une touche ou un raté en plongeon. */
+export const DIVE_TAG = '(plongeon)';
+
 const TIER_BANNER: Record<QualityTier, string> = {
   perfect: 'PARFAIT !',
   good: 'BIEN',

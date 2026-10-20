@@ -14,7 +14,9 @@ import { gestureFor } from './sim/touch';
 import type { Command, GameEvent, GameState, MatchConfig } from './sim/types';
 import { applyMagnetism } from './ui/assist';
 import type { HudView } from './ui/hud';
-import { expectedGesture, explainPress, timingRing, type PressExplanation } from './ui/overlay';
+import {
+  diveHint, diveReadiness, expectedGesture, explainPress, timingRing, type PressExplanation,
+} from './ui/overlay';
 import type { LastPressView } from './ui/pressCard';
 
 /** Facteur de ralenti du mode debug (spec V1 § 3.3), multiplié par celui de l'impact. */
@@ -49,6 +51,9 @@ export type Session = {
   /** Qualité de la dernière touche de l'humain (0 pour un raté), pour l'affichage debug. */
   lastQuality: number;
 };
+
+/** Explication neutre d'un plongeon : explainPress (placement, timing) ne s'applique pas à la réception d'urgence. */
+const DIVE_EXPLANATION: PressExplanation = { placement: null, timing: null, distance: 0, deltaTicks: 0 };
 
 export type FrameOutput = { overlay: Overlay; hud: HudView };
 
@@ -90,12 +95,24 @@ function playStep(s: Session, frameInput: InputFrame, now: number): void {
   const after = step(before, commands);
   s.fx.onEvents(after.events, after);
 
+  // Un plongeon n'a pas d'appui Action à expliquer (pas de pendingExplanation) : on le reconnaît à
+  // l'événement lui-même. Une touche de plongeon porte `dive: true`. Un raté (whiff) n'a pas de marque :
+  // seul un plongeon de l'humain en cours (PlayerState.dive) peut le produire, car le verrou du plongeon
+  // interdit tout appui Action jusqu'à sa fin, et la résolution a lieu avant cette fin (maxLeadTicks <
+  // slideTicks + recoveryTicks).
+  const humanDiving = (after.players.find((p) => p.id === humanId)?.dive ?? null) !== null;
   for (const e of after.events) {
     if ((e.type !== 'touch' && e.type !== 'whiff') || e.playerId !== humanId) continue;
-    if (s.pendingExplanation === null) continue;
-    s.lastPress = { tier: e.type === 'touch' ? e.tier : 'miss', explanation: s.pendingExplanation, at: now };
+    const dive = e.type === 'touch' ? e.dive === true : humanDiving;
+    if (!dive && s.pendingExplanation === null) continue;
+    s.lastPress = {
+      tier: e.type === 'touch' ? e.tier : 'miss',
+      explanation: dive ? DIVE_EXPLANATION : s.pendingExplanation!,
+      dive,
+      at: now,
+    };
     s.lastQuality = e.type === 'touch' ? e.quality : 0;
-    s.pendingExplanation = null;
+    if (!dive) s.pendingExplanation = null;
   }
 
   s.events.push(...after.events);
@@ -163,6 +180,8 @@ export function advanceFrame(s: Session, frameInput: InputFrame, frameDt: number
       servePhase: expected.gesture === 'serve' ? (curr.ball.mode === 'held' ? 'toss' : 'strike') : null,
     },
     device: frameInput.device,
+    diveHint: !s.paused && diveHint(curr, humanId, frameInput.command),
+    diveReadiness: humanId === null ? 1 : diveReadiness(curr, humanId),
     lastPress,
     now,
   };

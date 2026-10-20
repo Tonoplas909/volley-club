@@ -8,7 +8,7 @@ import type {
   Command, GameState, Gesture, PlayerState, TeamId, Trajectory, Vec2, Vec3,
 } from '../../src/sim/types';
 import {
-  TIMING_RING_TICKS, expectedGesture, explainPress, timingRing,
+  TIMING_RING_TICKS, diveHint, diveReadiness, expectedGesture, explainPress, timingRing,
 } from '../../src/ui/overlay';
 
 const R = TUNING.ball.radius;
@@ -381,5 +381,81 @@ describe('explainPress', () => {
         expect(ex.timing).toBeCloseTo(ev!.timing);
       }
     }
+  });
+});
+
+describe('diveHint (spec Plongeon § 6, point de vigilance 5)', () => {
+  /** Ballon adverse dans le couloir de l'humain, humain à `d` m (vers son fond) du contact, `lead` ticks avant l'instant idéal. */
+  function ballAt(d: number, lead: number): GameState {
+    const base = rallyState(INTO_HUMAN_LANE, 10);
+    const c = contactPoint(base, HUMAN, 'reception')!;
+    const ideal = idealPressTick(base, HUMAN, 'reception')!;
+    return atTick(moved(base, HUMAN, { x: c.x, z: c.z - d }), ideal - lead);
+  }
+
+  it('ballon à 2,2 m qui arrive dans 20 ticks dans le couloir de l\'humain : invitation', () => {
+    const s = ballAt(2.2, 20);
+    expect(expectedGesture(s, HUMAN, NEUTRAL)?.inReach).toBe(false);
+    expect(diveHint(s, HUMAN, NEUTRAL)).toBe(true);
+  });
+
+  it('ballon à 0,3 m (à portée en courant) : pas d\'invitation', () => {
+    const s = ballAt(0.3, 20);
+    expect(expectedGesture(s, HUMAN, NEUTRAL)?.inReach).toBe(true);
+    expect(diveHint(s, HUMAN, NEUTRAL)).toBe(false);
+  });
+
+  it('pendant la recharge : pas d\'invitation (la jauge montre la recharge)', () => {
+    const s = ballAt(2.2, 20);
+    const cooling: GameState = {
+      ...s, players: s.players.map((p) => (p.id === HUMAN ? { ...p, diveReadyTick: s.tick + 1 } : p)),
+    };
+    expect(diveHint(cooling, HUMAN, NEUTRAL)).toBe(false);
+    const ready: GameState = {
+      ...s, players: s.players.map((p) => (p.id === HUMAN ? { ...p, diveReadyTick: s.tick } : p)),
+    };
+    expect(diveHint(ready, HUMAN, NEUTRAL)).toBe(true);
+  });
+
+  it('ballon du couloir du coéquipier : pas d\'invitation', () => {
+    const base = rallyState(INTO_TEAMMATE_LANE, 10);
+    const c = contactPoint(base, HUMAN, 'reception')!;
+    const ideal = idealPressTick(base, HUMAN, 'reception')!;
+    const s = atTick(moved(base, HUMAN, { x: -0.2, z: c.z - 2.2 }), ideal - 20);
+    expect(diveHint(s, HUMAN, NEUTRAL)).toBe(false);
+  });
+
+  it('hors échange (point marqué) ou sans humain : pas d\'invitation', () => {
+    const s = ballAt(2.2, 20);
+    expect(diveHint({ ...s, phase: 'pointScored' }, HUMAN, NEUTRAL)).toBe(false);
+    expect(diveHint(s, null, NEUTRAL)).toBe(false);
+  });
+});
+
+describe('diveReadiness', () => {
+  const COOLDOWN = TUNING.dive.cooldownTicks;
+  const state = (diveReadyTick: number, tick: number): GameState => {
+    const s = rallyState(INTO_HUMAN_LANE, tick);
+    return { ...s, players: s.players.map((p) => (p.id === HUMAN ? { ...p, diveReadyTick } : p)) };
+  };
+
+  it('1 au départ (diveReadyTick = 0)', () => {
+    expect(diveReadiness(state(0, 10), HUMAN)).toBe(1);
+  });
+
+  it('environ 0 juste après un plongeon', () => {
+    expect(diveReadiness(state(100 + COOLDOWN, 100), HUMAN)).toBe(0);
+    expect(diveReadiness(state(100 + COOLDOWN, 101), HUMAN)).toBeCloseTo(1 / COOLDOWN, 6);
+  });
+
+  it('0,5 à mi-recharge, 1 à diveReadyTick', () => {
+    expect(diveReadiness(state(100 + COOLDOWN, 100 + COOLDOWN / 2), HUMAN)).toBeCloseTo(0.5, 9);
+    expect(diveReadiness(state(100 + COOLDOWN, 100 + COOLDOWN), HUMAN)).toBe(1);
+    expect(diveReadiness(state(100 + COOLDOWN, 100 + COOLDOWN + 50), HUMAN)).toBe(1);
+  });
+
+  it('borné à [0, 1] et 1 pour un joueur inconnu', () => {
+    expect(diveReadiness(state(10 + 2 * COOLDOWN, 10), HUMAN)).toBe(0);
+    expect(diveReadiness(state(0, 10), 99)).toBe(1);
   });
 });

@@ -5,7 +5,7 @@ import { STEP_DT } from '../src/loop';
 import { launchTo, positionAt, secondsSince } from '../src/sim/ball';
 import { currentServerId } from '../src/sim/court';
 import { createInitialState, NEUTRAL_COMMAND, step } from '../src/sim/simulation';
-import { contactPoint } from '../src/sim/touch';
+import { contactPoint, idealPressTick } from '../src/sim/touch';
 import { TUNING } from '../src/sim/tuning';
 import type { Command, GameEvent, GameState, MatchConfig, Vec2 } from '../src/sim/types';
 import { applyMagnetism } from '../src/ui/assist';
@@ -290,5 +290,86 @@ describe('advanceFrame : lastPress', () => {
     const now = toss(s, t0 + 0.001);
     expect(advanceFrame(s, input(), 0.001, now + 0.001).hud.expected)
       .toEqual({ gesture: 'serve', inReach: true, servePhase: 'strike' });
+  });
+});
+
+describe('advanceFrame : plongeon (carte du geste, jauge, invitation)', () => {
+  const R = TUNING.ball.radius;
+
+  /** Attaque adverse dans le couloir de l'humain, `lead` ticks avant l'instant idéal, humain à `d` m derrière le contact. */
+  function diveFixture(s: Session, d: number, lead: number): GameState {
+    const traj = launchTo({ x: 1, y: 3, z: 1 }, { x: -2, y: R, z: -5 }, 1.2, 0);
+    const base: GameState = {
+      ...s.curr,
+      tick: 10,
+      phase: 'rally',
+      phaseStartTick: 0,
+      ball: {
+        mode: 'flying', traj, pos: positionAt(traj, secondsSince(traj, 10)),
+        lastTouch: { playerId: 3, team: 1, gesture: 'attack', tick: 0 },
+      },
+      rally: { touchingTeam: 1, touches: 3, lastToucherId: 3 },
+      events: [],
+    };
+    const contact = contactPoint(base, HUMAN, 'reception')!;
+    const ideal = idealPressTick(base, HUMAN, 'reception')!;
+    const at = ideal - lead;
+    return {
+      ...base,
+      tick: at,
+      ball: { ...base.ball, pos: positionAt(traj, secondsSince(traj, at)) },
+      players: base.players.map((p) => (p.id === HUMAN
+        ? { ...p, pos: { x: contact.x, y: 0, z: contact.z - d }, vel: { x: 0, z: 0 } }
+        : p)),
+    };
+  }
+
+  /** Joue des frames d'un step ; Plongeon appuyé à la première. Renvoie la dernière sortie. */
+  function diveAndPlay(d: number) {
+    const s = newSession(config(1), { magnet: false, reducedMotion: false });
+    const fixture = diveFixture(s, d, 20);
+    s.curr = fixture;
+    s.prev = fixture;
+    const before = advanceFrame(s, input({}), 0.0001, 0.5); // vue avant l'appui
+    let now = 1;
+    let out = advanceFrame(s, input({ divePressed: true }), STEP_DT * 1.01, now);
+    for (let i = 0; i < 120 && out.hud.lastPress === null; i++) {
+      now += STEP_DT * 1.01;
+      out = advanceFrame(s, input(), STEP_DT * 1.01, now);
+    }
+    return { s, before, out };
+  }
+
+  it('invitation avant l\'appui, puis jauge vide juste après le départ', () => {
+    const { before, s } = diveAndPlay(2.2);
+    expect(before.hud.diveHint).toBe(true);
+    expect(before.hud.diveReadiness).toBe(1);
+    expect(s.curr.players[HUMAN]!.diveReadyTick).toBeGreaterThan(s.curr.tick);
+  });
+
+  it('une touche de plongeon de l\'humain donne lastPress.dive === true', () => {
+    const { out } = diveAndPlay(2.2);
+    const last = out.hud.lastPress;
+    expect(last).not.toBeNull();
+    expect(last!.dive).toBe(true);
+    expect(last!.tier).not.toBe('miss');
+    expect(out.hud.diveHint).toBe(false); // plongeon en cours : plus d'invitation
+    expect(out.hud.diveReadiness).toBeLessThan(1);
+  });
+
+  it('un plongeon raté (ballon hors de portée) est aussi reconnu comme un plongeon', () => {
+    const { out } = diveAndPlay(4.6);
+    const last = out.hud.lastPress;
+    expect(last).not.toBeNull();
+    expect(last!.dive).toBe(true);
+    expect(last!.tier).toBe('miss');
+  });
+
+  it('un appui Action ordinaire donne lastPress.dive === false', () => {
+    const { s, now: t0 } = atHumanServe();
+    let now = toss(s, t0);
+    now += STEP_DT * 1.5;
+    const out = advanceFrame(s, press(), STEP_DT * 1.5, now);
+    expect(out.hud.lastPress!.dive).toBe(false);
   });
 });

@@ -194,11 +194,21 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px s
 }
 
 /* Bandeau du geste attendu */
-.gesture-banner {
+/* Support du bandeau et de la jauge de recharge, au centre en bas */
+.banner-dock {
   position: absolute;
   bottom: 18px;
-  left: 50%;
-  transform: translateX(-50%) scale(1);
+  left: 0;
+  right: 0;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  pointer-events: none;
+}
+/* Largeur minimale constante : la jauge ne bouge pas selon le geste affiché */
+.banner-slot { grid-column: 2; display: flex; justify-content: center; min-width: 14.5em; font-size: 26px; }
+.gesture-banner {
+  transform: scale(1);
   display: flex;
   align-items: center;
   gap: 12px;
@@ -216,8 +226,17 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px s
 }
 .gesture-banner.in-reach {
   opacity: 1;
-  transform: translateX(-50%) scale(1.1);
+  transform: scale(1.1);
   background: var(--accent);
+  border-color: #1b2540;
+  color: #1b2540;
+  text-shadow: none;
+}
+/* Invitation à plonger : plein relief, couleur distincte du geste ordinaire */
+.gesture-banner.dive {
+  opacity: 1;
+  transform: scale(1.1);
+  background: var(--tier-good);
   border-color: #1b2540;
   color: #1b2540;
   text-shadow: none;
@@ -234,6 +253,41 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px s
   border-radius: 8px;
   box-shadow: 0 3px 0 #1b2540;
 }
+
+/* Jauge de recharge du plongeon : anneau qui se remplit, vive quand elle est pleine */
+.dive-gauge {
+  --fill: 100%;
+  grid-column: 3;
+  justify-self: start;
+  margin-left: 28px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  padding: 6px;
+  background: conic-gradient(var(--muted) var(--fill), rgba(0, 0, 0, 0.55) 0);
+  border: 2px solid var(--panel-edge);
+  box-shadow: var(--panel-shadow);
+  opacity: 0.8;
+  transition: opacity 0.15s, box-shadow 0.15s;
+}
+.dive-gauge.ready {
+  opacity: 1;
+  background: conic-gradient(var(--tier-good) 100%, rgba(0, 0, 0, 0.45) 0);
+  border-color: #fff;
+  box-shadow: 0 0 14px var(--tier-good), var(--panel-shadow);
+}
+.dive-gauge-disc {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: #1b2540;
+  color: var(--muted);
+}
+.dive-gauge.ready .dive-gauge-disc { color: var(--tier-good); }
+.dive-icon { width: 30px; height: 30px; }
 
 /* Détail du dernier geste */
 .press-card {
@@ -259,6 +313,7 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px s
   100% { transform: scale(1); }
 }
 .press-tier { font-size: 28px; font-weight: 700; color: var(--tier); margin-bottom: 6px; -webkit-text-stroke: 1.5px #1b2540; paint-order: stroke fill; }
+.press-dive { margin: -2px 0 4px; font-size: 16px; font-weight: 700; color: var(--tier); }
 .bar-row { display: grid; grid-template-columns: 74px 1fr 40px; align-items: center; gap: 6px; font-size: 13px; margin-top: 4px; }
 .bar-track { height: 10px; background: rgba(0, 0, 0, 0.4); border-radius: 6px; overflow: hidden; }
 .bar-fill { height: 100%; width: 0; background: var(--tier); border-radius: 6px; }
@@ -279,7 +334,12 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px s
 }
 
 @media (max-width: 760px) {
-  .gesture-banner { bottom: 132px; font-size: 20px; }
+  /* Écran étroit : le support évite la mini-carte (116 px à droite) et la jauge suit le bandeau. */
+  .banner-dock { bottom: 132px; left: 8px; right: 124px; grid-template-columns: auto auto; justify-content: center; gap: 10px; }
+  .banner-slot { grid-column: 1; min-width: 0; font-size: 17px; }
+  .gesture-banner { font-size: 17px; padding: 6px 12px; }
+  .dive-gauge { grid-column: 2; margin-left: 0; width: 46px; height: 46px; padding: 4px; }
+  .dive-icon { width: 22px; height: 22px; }
 }
 
 .unsupported {

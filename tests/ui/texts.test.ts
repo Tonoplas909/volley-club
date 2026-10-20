@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { PointReason } from '../../src/sim/types';
 import type { PressExplanation } from '../../src/ui/overlay';
 import {
-  deviceKeyLabel, gestureLabel, hintText, matchEndText, missReasonText, pointReasonText, setEndText,
+  deviceKeyLabel, diveHintText, gestureLabel, hintText, matchEndText, missReasonText, pointReasonText, setEndText,
   tierBanner, tierText,
 } from '../../src/ui/texts';
 
@@ -119,5 +119,12 @@ describe('hintText', () => {
     expect(hintText(expl({ placement: 0.6, timing: 0.7 }))).toBeNull();
     expect(hintText(expl({ placement: null }))).toBeNull();
     expect(hintText(expl({ timing: null }))).toBeNull();
+  });
+});
+
+describe('diveHintText', () => {
+  it('donne la touche selon le périphérique', () => {
+    expect(diveHintText('keyboard')).toBe('PLONGEON — Maj');
+    expect(diveHintText('gamepad')).toBe('PLONGEON — B');
   });
 });
