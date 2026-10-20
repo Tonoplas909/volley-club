@@ -4,7 +4,7 @@ import {
   assignRoles, chooseAttackAim, chooseServeAim, targetPosition, whoTakesBall,
 } from '../../src/sim/ai/decisions';
 import { difficultyPreset } from '../../src/sim/ai/difficulty';
-import { launchTo, positionAt } from '../../src/sim/ball';
+import { landingPoint, launchTo, positionAt } from '../../src/sim/ball';
 import { currentServerId, laneOf, sideOf } from '../../src/sim/court';
 import { initialScore } from '../../src/sim/rules';
 import { createInitialState, NEUTRAL_COMMAND, step } from '../../src/sim/simulation';
@@ -259,6 +259,40 @@ describe('plongeon de l\'IA (spec Plongeon § 5)', () => {
       s.players[1]!.diveReadyTick = s.tick + 150;
       const { commands } = play(s, 1, createBrain(1, 'normal', seed), 150);
       expect(commands.some((c) => c.divePressed)).toBe(false);
+    }
+  });
+
+  it('3e touche hors de portée du saut : l\'IA renonce à l\'attaque et sauve en plongeon, chez l\'adversaire', () => {
+    for (const seed of [1, 2, 3, 4, 5]) {
+      // Passe ratée du joueur 1 qui part loin du joueur 0 : le point de frappe est hors de portée du saut
+      // (l'appui d'attaque serait forcément raté), le point de réception à environ 3 m, pas atteignable en courant.
+      const traj = launchTo({ x: 0, y: 2.2, z: -1 }, { x: -3, y: R, z: -6.5 }, 1.2, 300);
+      const s = rallyState(
+        traj,
+        { playerId: 1, team: 0, gesture: 'set', tick: 300 },
+        { touchingTeam: 0, touches: 2, lastToucherId: 1 },
+      );
+      s.players[0]!.pos = { x: 0, y: 0, z: -8 };
+      s.players[1]!.pos = { x: 0, y: 0, z: -1 };
+      expect(whoTakesBall(s, 0)).toBe(0);
+      const brain = createBrain(0, 'normal', seed);
+      let state = s;
+      const commands: Command[] = [];
+      const events: GameEvent[] = [];
+      let landingZ: number | null = null;
+      for (let i = 0; i < 150 && state.phase === 'rally'; i++) {
+        const cmd = brain.think(state);
+        commands.push(cmd);
+        state = step(state, state.players.map((p) => (p.id === 0 ? cmd : NEUTRAL_COMMAND)));
+        events.push(...state.events);
+        if (state.events.some((e) => e.type === 'touch' && e.dive === true)) landingZ = landingPoint(state.ball.traj).z;
+      }
+      expect(commands.some((c) => c.actionPressed)).toBe(false);
+      expect(commands.filter((c) => c.divePressed)).toHaveLength(1);
+      expect(events.filter((e) => e.type === 'dive')).toEqual([{ type: 'dive', playerId: 0 }]);
+      const saves = events.filter((e) => e.type === 'touch' && e.playerId === 0);
+      expect(saves).toEqual([expect.objectContaining({ gesture: 'reception', dive: true })]);
+      expect(Math.sign(landingZ!)).toBe(-sideOf(0));
     }
   });
 

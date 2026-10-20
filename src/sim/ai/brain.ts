@@ -3,10 +3,10 @@
  * Il a sa propre mémoire (réaction, erreurs tirées, appui déjà fait) et son propre rng seedé.
  */
 import { currentServerId } from '../court';
-import { canStartDive, diveOpportunity } from '../dive';
+import { canStartDive, diveIntent, diveOpportunity, playedGesture } from '../dive';
 import { jumpApexTicks } from '../player';
 import { rngGaussian, rngInDisc } from '../rng';
-import { gestureFor, idealPressTick } from '../touch';
+import { contactPoint, gestureFor, idealPressTick, pressDistance } from '../touch';
 import { TUNING } from '../tuning';
 import type { Command, Difficulty, GameState, Gesture, PlayerState, Vec2 } from '../types';
 import {
@@ -28,9 +28,26 @@ const ZERO: Vec2 = Object.freeze({ x: 0, z: 0 }) as Vec2;
 
 /**
  * Plongeon décidé sur une trajectoire (spec Plongeon § 5) : tick d'appui sans bruit (ideal − slideTicks),
- * tick visé (avec le bruit de timing), instant idéal et direction vers le point de contact.
+ * tick visé (avec le bruit de timing), instant idéal et dernière direction calculée vers le point de contact.
  */
 type DivePlan = { pressTick: number; noisyTick: number; ideal: number; dir: Vec2 };
+
+/**
+ * 3e touche (spec Plongeon § 5, sauvetage) : l'attaque est hors de portée du saut, donc son appui serait
+ * forcément raté (placement au-delà de reach.max), alors que le point de contact de réception est à portée
+ * de plongeon et que la recharge sera prête à temps. Le cerveau renonce alors à l'attaque pour garder son
+ * appui de la trajectoire au plongeon. Une attaque à portée garde le comportement V1.
+ */
+function prefersSaveDive(state: GameState, player: PlayerState): boolean {
+  if (state.rally.touchingTeam !== player.team || state.rally.touches !== 2) return false;
+  const attackDistance = pressDistance(state, player.id, 'attack');
+  if (attackDistance === null || attackDistance <= TUNING.touch.reach.max) return false;
+  const save = contactPoint(state, player.id, 'reception');
+  const ideal = idealPressTick(state, player.id, 'reception');
+  if (save === null || ideal === null || player.diveReadyTick > ideal - TUNING.dive.slideTicks) return false;
+  const distance = Math.hypot(save.x - player.pos.x, save.z - player.pos.z);
+  return distance <= TUNING.dive.distance + TUNING.touch.reach.max;
+}
 
 /**
  * Identité de la situation de balle. Tenu, le ballon est replacé à chaque tick (startTick change) :
@@ -40,6 +57,17 @@ function ballKey(state: GameState): string {
   return state.ball.mode === 'flying'
     ? `f${state.ball.traj.startTick}`
     : `${state.ball.mode}${state.phaseStartTick}`;
+}
+
+/** Direction du plongeon vers le point de contact, recalculée au tick d'appui réel (le joueur a pu bouger). */
+function diveDirectionNow(state: GameState, player: PlayerState, cmd: Command): Vec2 | null {
+  const intent = diveIntent(state, player.id, cmd);
+  const contact = intent && contactPoint(state, player.id, playedGesture(intent.gesture));
+  if (!contact) return null;
+  const dx = contact.x - player.pos.x;
+  const dz = contact.z - player.pos.z;
+  const d = Math.hypot(dx, dz);
+  return d < ARRIVE_RADIUS ? null : { x: dx / d, z: dz / d };
 }
 
 function moveToward(from: Vec2, to: Vec2): Vec2 {
@@ -135,6 +163,7 @@ export function createBrain(playerId: number, difficulty: Difficulty, seed: numb
     if (gesture === 'block' && state.rally.touches !== 2) return none;
     if (!isPressTime(state.tick + 1, idealPressTick(state, player.id, gesture))) return none;
     if (gesture !== 'attack') return { aim: ZERO, press: true };
+    if (prefersSaveDive(state, player)) return none; // attaque perdue d'avance : sauvetage en plongeon
     const choice = chooseAttackAim(state, player.id, rng);
     rng = choice.rng;
     return { aim: choice.aim, press: true };
@@ -163,7 +192,7 @@ export function createBrain(playerId: number, difficulty: Difficulty, seed: numb
     const nextTick = state.tick + 1;
     if (nextTick < divePlan.noisyTick || nextTick > divePlan.ideal) return null;
     if (!canStartDive(state, player.id) || whoTakesBall(state, player.team) !== player.id) return null;
-    return divePlan.dir;
+    return diveDirectionNow(state, player, cmd) ?? divePlan.dir;
   }
 
   /** Attaquant désigné après la passe de son équipe : il prend son élan vers le point de frappe. */
