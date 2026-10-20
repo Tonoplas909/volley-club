@@ -39,7 +39,7 @@ export function playedGesture(g: DiveGesture): 'reception' | 'set' {
 }
 
 /** Tick où le plongeon se termine : fin de la glissade et de la récupération au sol. */
-export function diveEndTick(dive: DiveState): number {
+export function diveEndTick(dive: Pick<DiveState, 'startTick'>): number {
   return dive.startTick + D.slideTicks + D.recoveryTicks;
 }
 

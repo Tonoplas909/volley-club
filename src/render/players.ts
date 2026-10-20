@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { diveEndTick } from '../sim/dive';
 import { jumpHeightAt } from '../sim/player';
 import { TUNING } from '../sim/tuning';
 import type { DiveState, GameEvent, GameState, Gesture, PendingGesture, PlayerState, Vec3 } from '../sim/types';
@@ -30,8 +31,6 @@ const ARM_RATE = 24;
 const HOLD_SECONDS = 0.5;
 const STRIKE_SECONDS = 0.3;
 
-/** La simulation avance à 60 Hz (1 tick = 1/60 s). */
-const TICKS_PER_SECOND = 60;
 /** Plongeon : durée (s) du relevé, à la fin de la récupération. */
 const STAND_UP_SECONDS = 0.2;
 /** Plongeon : le corps bascule d'un quart de tour, à l'horizontale. */
@@ -40,9 +39,12 @@ const DIVE_TILT = Math.PI / 2;
 const DIVE_LIE_Y = BODY_RADIUS;
 /** Plongeon : hauteur (m) du point autour duquel le corps bascule (milieu pieds-bras tendus). */
 const DIVE_PIVOT_Y = 0.95;
-const DIVE_TOTAL_TICKS = TUNING.dive.slideTicks + TUNING.dive.recoveryTicks;
-/** Âge (ticks) du plongeon où le joueur commence à se relever. */
-const DIVE_STAND_UP_AT = DIVE_TOTAL_TICKS - STAND_UP_SECONDS * TICKS_PER_SECOND;
+
+/** Âges (ticks) du plongeon, lus dans TUNING à chaque appel : fin (diveEndTick) et début du relevé. */
+function diveAges(dive: Pick<DiveState, 'startTick'>): { total: number; standUpAt: number } {
+  const total = diveEndTick(dive) - dive.startTick;
+  return { total, standUpAt: total - STAND_UP_SECONDS * TUNING.tickRate };
+}
 
 type ArmPose = { pitch: number; inward: number };
 type Pose = readonly [ArmPose, ArmPose];
@@ -98,11 +100,12 @@ function smoothstep(u: number): number {
  */
 export function diveTilt(dive: Pick<DiveState, 'startTick'>, tick: number): number {
   const age = tick - dive.startTick;
-  if (age >= DIVE_TOTAL_TICKS) return 0;
+  const { total, standUpAt } = diveAges(dive);
+  if (age >= total) return 0;
   const tiltTicks = TUNING.dive.slideTicks / 2;
   if (age < tiltTicks) return DIVE_TILT * smoothstep(age / tiltTicks);
-  if (age < DIVE_STAND_UP_AT) return DIVE_TILT;
-  return DIVE_TILT * (1 - smoothstep((age - DIVE_STAND_UP_AT) / (DIVE_TOTAL_TICKS - DIVE_STAND_UP_AT)));
+  if (age < standUpAt) return DIVE_TILT;
+  return DIVE_TILT * (1 - smoothstep((age - standUpAt) / (total - standUpAt)));
 }
 
 function poseFor(pending: PendingGesture | null, anim: Anim | undefined, time: number): Pose {
@@ -221,7 +224,8 @@ export function createPlayers(): PlayersView {
         // `dive` peut rester non nul toute la phase pointScored : passé diveEnd, le joueur est debout.
         const dive = cp.dive;
         const diveAge = dive ? renderTick - dive.startTick : 0;
-        const diving = dive !== null && diveAge < DIVE_TOTAL_TICKS;
+        const ages = dive ? diveAges(dive) : null;
+        const diving = dive !== null && ages !== null && diveAge < ages.total;
         const tilt = dive ? diveTilt(dive, renderTick) : 0;
 
         // Orientation : vers la vitesse en mouvement, vers le ballon à l'arrêt (spec § 5).
@@ -241,7 +245,7 @@ export function createPlayers(): PlayersView {
           z + Math.cos(view.yaw) * back,
         );
 
-        const pose = diving && diveAge < DIVE_STAND_UP_AT ? POSES.dive : poseFor(cp.pending, anims.get(cp.id), time);
+        const pose = diving && ages !== null && diveAge < ages.standUpAt ? POSES.dive : poseFor(cp.pending, anims.get(cp.id), time);
         for (let a = 0; a < 2; a++) {
           const arm = pose[a] as ArmPose;
           view.armPitch[a] = fresh ? arm.pitch : (view.armPitch[a] ?? 0) + (arm.pitch - (view.armPitch[a] ?? 0)) * armK;
