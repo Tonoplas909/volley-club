@@ -55,3 +55,9 @@ Ruling: en pause, PAUSED_FX met flash = 0 et shockwaves = [] (consigne du contr�
 Task 6: complete (commits 12137e2..f407160, review clean)
 Task 6: minor (deferred): pas de test que newSession transmet humanId à createFx ; impactFlash sans test DOM ; petites allocations par frame (waves.map, forEach, setHex) ; dispose du calque jamais appelé (vit autant que l'app) ; premier flash affiché ≈ 0,55 (une frame de décroissance) ; bornes shockwaveLook / retrait des ondes légèrement différentes (opacité 0 de toute façon)
 TOUTES LES TÂCHES TERMINÉES. Revue finale (opus) sur c64ac1b..HEAD.
+FINAL REVIEW (opus, c64ac1b..4f88bad) : prêt à merger — 0 Critical, 0 Important, 25 mineures différées toutes acceptables, 8 Rulings approuvés. Vérifications manuelles restantes : redimensionnement pendant la capture, vrai Échap dans Chrome, recapture ~1 s après Échap. Spec § 6.1 mise à jour (pause : PAUSED_FX efface flash et ondes).
+Nouvelles mineures optionnelles corrigées en une petite vague : cône de la mini-carte dessiné par-dessus la croix du point de chute ; aide « Clique pour orienter… » qui clignote 1-2 frames après Jouer/Rejouer/Reprendre ; movementX non fini non filtré.
+FINAL FIX WAVE: sonnet DONE (299d8f1 cône sous la croix, a995082 aide sans clignotement, a009e3d deltas souris non finis) — 473/473 ; re-revue en cours
+FINAL FIX WAVE: re-revue sonnet — 3 corrections ADDRESSED, aucune casse. Contrôleur : 473/473, typecheck et build OK.
+Final review: complete (commits 567475b..a009e3d, review clean).
+CAMÉRA 3E PERSONNE COMPLÈTE.
