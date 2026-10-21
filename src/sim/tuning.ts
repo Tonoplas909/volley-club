@@ -54,6 +54,18 @@ export const TUNING = {
   },
   /** V1.1, aimantation de l'humain (rayon et distances en mètres, force dans [0, 1]). */
   assist: { magnetRadius: 1.5, magnetStrength: 0.6, magnetFullDistance: 0.5, magnetDeadZone: 0.1 },
+  /**
+   * Caméra 3e personne (hors simulation) : distance, hauteur du point visé et plancher en mètres,
+   * bornes de pitch en radians (≈ −10°, 45°, 15°), sensibilités, lissage du suivi et pic de souris borné.
+   */
+  camera: {
+    distance: 4, targetHeight: 1.4, minHeight: 0.5,
+    pitchMin: -0.17, pitchMax: 0.79, pitchDefault: 0.26,
+    mouseSensitivity: 0.0025,   // rad par pixel
+    stickSpeed: 2.5, keySpeed: 2.0,   // rad/s
+    followSmoothing: 10,        // 1/s
+    maxMouseDeltaPx: 200,
+  },
 } as const;
 
 export type Tuning = typeof TUNING;
