@@ -133,7 +133,7 @@ export function updateView(view: CameraView, look: LookInput, realDt: number): C
   - `createFx` reçoit `humanId` ;
   - `FxFrame` gagne `flash: number` (de 0 à 1) et `shockwaves: readonly { pos: Vec3; age: number; team: TeamId }[]`. `age` est en secondes de temps réel, et les ondes finies sont retirées ;
   - les vagues sont limitées à 4 à la fois, et les plus anciennes sont retirées en premier ;
-  - pendant la pause, `fx.advance` n'est pas appelé, donc le flash et les ondes restent figés.
+  - pendant la pause, `fx.advance` n'est pas appelé et le rendu reçoit un `fx` neutre (`PAUSED_FX`) : un flash ou une onde en cours disparaît, sous le panneau de pause (décision de l'implémentation, validée en revue finale).
 - **Affichage :** le flash est un élément DOM dans `src/ui/` ; les ondes sont dessinées par un module de rendu (`src/render/shockwave.ts`), avec un pool d'objets réutilisés.
 
 ## 7. Réglages (`src/sim/tuning.ts`)
