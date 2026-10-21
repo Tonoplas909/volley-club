@@ -34,8 +34,9 @@ export function createInput(target: InputTarget, options: InputOptions = {}): In
   const onMouseMove = (event: Event): void => {
     if (!mouseLocked()) return;
     const { movementX, movementY } = event as Event & { movementX?: number; movementY?: number };
-    mouseDx += movementX ?? 0;
-    mouseDy += movementY ?? 0;
+    // Un delta non fini (NaN, Infinity) ne doit jamais atteindre la caméra ni `step` : on l'ignore.
+    if (Number.isFinite(movementX)) mouseDx += movementX as number;
+    if (Number.isFinite(movementY)) mouseDy += movementY as number;
     mouseMoved = true;
   };
   target.addEventListener('mousemove', onMouseMove);

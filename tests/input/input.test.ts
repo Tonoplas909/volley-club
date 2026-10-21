@@ -423,6 +423,20 @@ describe('createInput orientation de la caméra', () => {
     input.dispose();
   });
 
+  it('ignore les deltas non finis (NaN, Infinity) sans perdre les valides', () => {
+    setPads([]);
+    const target = new EventTarget();
+    const input = createInput(target, { mouseLocked: () => true });
+    target.dispatchEvent(mouseEvent(10, 4));
+    target.dispatchEvent(mouseEvent(NaN, Infinity));
+    target.dispatchEvent(mouseEvent(-Infinity, NaN));
+    target.dispatchEvent(mouseEvent(5, -1));
+    const { look } = input.poll();
+    expect(look.mouseDx).toBe(15);
+    expect(look.mouseDy).toBe(3);
+    input.dispose();
+  });
+
   it('souris non capturée (par défaut) : les mousemove sont ignorés', () => {
     setPads([]);
     const target = new EventTarget();
