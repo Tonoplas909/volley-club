@@ -2,7 +2,7 @@
 
 > **Pour les agents d'exécution :** sous-skill requis : `subagent-driven-development` (copie du projet, `.claude/skills/`), tâche par tâche. Les étapes utilisent des cases à cocher (`- [ ]`).
 
-**Objectif :** remplacer la caméra fixe par une caméra 3e personne orientée à la souris (souris capturée), au stick droit ou aux touches A/E. Les commandes deviennent relatives à la caméra, et la mini-carte affiche un cône de vue. Les attaques avec arrêt sur image font un flash (pour l'humain) ou une onde de choc (pour les autres).
+**Objectif :** remplacer la caméra fixe par une caméra 3e personne orientée à la souris (souris capturée), au stick droit ou aux touches A/E. Les commandes deviennent relatives à la caméra, et la mini-carte affiche un cône de vue. Les attaques parfaites font un flash (pour l'humain) ou une onde de choc (pour les autres).
 
 **Architecture :**
 - L'orientation `CameraView { yaw, pitch }` est de la présentation. Elle vit dans la session (`src/frame.ts`), et ses calculs sont des fonctions pures dans un nouveau module `src/camera/view.ts`.
@@ -56,7 +56,7 @@ Les implémenteurs passent un par un. Chaque tâche est relue par un agent sonne
 | 3 | Session : orientation, conversion des commandes | sonnet |
 | 4 | Rendu : caméra en orbite, cône de la mini-carte | sonnet |
 | 5 | Souris capturée, pause, « Reprendre », aide, menu | sonnet |
-| 6 | Effets d'impact des attaques : flash et onde de choc | sonnet |
+| 6 | Effets d'impact des attaques parfaites : flash et onde de choc | sonnet |
 | — | Revue finale | **opus** |
 
 ### Revue finale (après la tâche 6)
@@ -225,7 +225,7 @@ Elle vérifie :
   - Sauvegarder les captures dans `.superpowers/sdd/2026-10-21-volley-club-camera-3e-personne/task-5-*.png`.
 - [ ] **Étape 3 : commit.** `feat(ui): capture de la souris, reprise et aide pour la caméra`.
 
-### Tâche 6 : effets d'impact des attaques (flash et onde de choc)
+### Tâche 6 : effets d'impact des attaques parfaites (flash et onde de choc)
 
 **Fichiers :**
 - modifier `src/sim/tuning.ts` (ajouter `fx.flash` et `fx.shockwave`, rien d'autre), `src/fx/fx.ts`, `src/frame.ts` (passer `humanId` à `createFx` ; compléter `NEUTRAL_FX` et `PAUSED_FX`) et `src/render/renderer.ts` ;
@@ -236,7 +236,7 @@ Elle vérifie :
 Spec : § 6.1, § 7 (`fx.flash`, `fx.shockwave`), § 8 (vigilance 8).
 
 **Interfaces :**
-- Consomme : l'événement `touch` (geste `attack`, `playerId`, `quality`), l'état produit par le step (position du ballon et équipe de l'attaquant), et `Overlay.fx`.
+- Consomme : l'événement `touch` (geste `attack`, palier `perfect`, `playerId`), l'état produit par le step (position du ballon et équipe de l'attaquant), et `Overlay.fx`. Seules les attaques de palier `perfect` déclenchent un effet.
 - Produit :
   - `createFx(options: { reducedMotion?: boolean; seed?: number; humanId?: number | null })` ;
   - `FxFrame` gagne `flash: number` et `shockwaves: readonly { pos: Vec3; age: number; team: TeamId }[]`. `flash` vaut la valeur au moment de l'appel à `advance`. Le non-cumul se fait par `max`, jamais par une somme. On garde au plus 4 ondes, et la plus ancienne est retirée en premier ;
@@ -246,13 +246,13 @@ Spec : § 6.1, § 7 (`fx.flash`, `fx.shockwave`), § 8 (vigilance 8).
 
 - [ ] **Étape 1 : écrire les tests qui échouent.**
   - `fx` :
-    - une attaque de l'humain (`playerId === humanId`, qualité 1) donne un `flash` ≈ 0,6 juste après, environ 0,3 à mi-durée (0,09 s), puis 0 après 0,18 s. Elle ne crée aucune onde ;
-    - une attaque de qualité 0 donne un pic ≈ 0,3 ;
-    - une attaque d'un autre joueur donne `flash === 0` et exactement une onde, à la position du ballon de l'état passé à `onEvents` ;
+    - une attaque parfaite de l'humain (`playerId === humanId`, palier `perfect`) donne un `flash` ≈ 0,6 juste après, environ 0,3 à mi-durée (0,09 s), puis 0 après 0,18 s. Elle ne crée aucune onde ;
+    - une attaque de palier `good` (de l'humain ou d'un autre joueur) ne donne ni flash ni onde ;
+    - une attaque parfaite d'un autre joueur donne `flash === 0` et exactement une onde, à la position du ballon de l'état passé à `onEvents` ;
     - l'onde est retirée après 0,3 s ;
-    - avec `reducedMotion: true`, une attaque de l'humain donne `flash === 0` et une onde ;
+    - avec `reducedMotion: true`, une attaque parfaite de l'humain donne `flash === 0` et une onde ;
     - les gestes autres que l'attaque ne produisent ni flash ni onde ;
-    - **spec vigilance 8 :** deux attaques de l'humain dans le même `onEvents` ne dépassent pas 0,6, et 6 attaques d'autres joueurs laissent 4 ondes ;
+    - **spec vigilance 8 :** deux attaques parfaites de l'humain dans le même `onEvents` ne dépassent pas 0,6, et 6 attaques parfaites d'autres joueurs laissent 4 ondes ;
     - pendant le gel de 140 ms, `advance(0.05)` fait déjà décroître le flash (temps réel).
   - `shockwaveLook` : à 0, rayon 0,2 et opacité 1 ; à 0,15, rayon entre 0,2 et 1,2 et opacité entre 0 et 1 ; à 0,31, `null`.
 - [ ] **Étape 2 : `npm test -- fx shockwave`.** Attendu : FAIL.
@@ -260,8 +260,8 @@ Spec : § 6.1, § 7 (`fx.flash`, `fx.shockwave`), § 8 (vigilance 8).
 - [ ] **Étape 4 : vérifier.**
   - `npm test`, `npm run typecheck` et `npm run build` passent (PASS).
   - Captures sans écran, dans un script du bloc-notes qui injecte des événements :
-    - le flash juste après une attaque de l'humain ;
-    - une onde de choc sur une attaque adverse.
+    - le flash juste après une attaque parfaite de l'humain ;
+    - une onde de choc sur une attaque parfaite adverse.
   - Aucune erreur en console.
   - Sauvegarder les captures dans `.superpowers/sdd/2026-10-21-volley-club-camera-3e-personne/task-6-*.png`.
-- [ ] **Étape 5 : commit.** `feat(fx): flash sur ses attaques, onde de choc sur celles des autres`.
+- [ ] **Étape 5 : commit.** `feat(fx): flash sur ses attaques parfaites, onde de choc sur celles des autres`.

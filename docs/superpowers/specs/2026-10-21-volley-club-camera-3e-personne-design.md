@@ -14,7 +14,7 @@ Jouer **en 3e personne**, avec une caméra derrière son personnage que l'on ori
 - L'ancienne caméra fixe (derrière l'équipe) **disparaît** : pas d'option pour la garder.
 - **Aucun recentrage** automatique ni par touche.
 - Une mini-carte **fixe**, avec un **cône de vue** qui montre la direction de la caméra.
-- **Effet d'impact sur les attaques** (ajout) : un **flash** à l'écran quand c'est **toi** qui fais une attaque avec arrêt sur image ; pour l'attaque d'un **autre joueur**, vue de l'extérieur, un **effet visuel** dans la scène plutôt qu'un flash.
+- **Effet d'impact sur les attaques** (ajout) : un **flash** à l'écran quand c'est **toi** qui fais une attaque **parfaite** ; pour l'attaque parfaite d'un **autre joueur**, vue de l'extérieur, un **effet visuel** dans la scène plutôt qu'un flash. **Seulement pour les attaques parfaites.**
 
 ### 1.2 Critères de réussite
 
@@ -25,7 +25,7 @@ Jouer **en 3e personne**, avec une caméra derrière son personnage que l'on ori
 5. Libérer la souris (Échap, Alt+Tab) met le jeu en pause. On reprend d'un clic, ce qui recapture la souris.
 6. Sans souris capturée (refus du navigateur, pavé tactile, manette seule), le jeu reste jouable : la caméra s'oriente avec le stick droit ou avec les touches `KeyQ` / `KeyE` (A / E en AZERTY).
 7. La mini-carte reste fixe, ton équipe en bas, avec un cône qui part du joueur humain dans la direction de la caméra.
-8. Une attaque touchée par l'humain fait un flash bref de l'écran. Une attaque touchée par un autre joueur fait une onde de choc visible au point de frappe, sans flash. Les deux restent visibles pendant l'arrêt sur image.
+8. Une attaque **parfaite** de l'humain fait un flash bref de l'écran. Une attaque **parfaite** d'un autre joueur fait une onde de choc visible au point de frappe, sans flash. Les deux restent visibles pendant l'arrêt sur image. Une attaque qui n'est pas parfaite ne déclenche ni l'un ni l'autre.
 
 ### 1.3 Hors périmètre
 
@@ -120,10 +120,10 @@ export function updateView(view: CameraView, look: LookInput, realDt: number): C
 
 ### 6.1 Effets d'impact des attaques
 
-- **Déclencheur :** tout événement `touch` de geste `attack`. Ce sont les touches qui provoquent l'arrêt sur image de 140 ms (V1.1 § 5.1). Les autres gestes ne changent pas.
+- **Déclencheur :** un événement `touch` de geste `attack` **et** de palier `perfect`, c'est-à-dire une attaque parfaite. Ce sont celles qui déclenchent l'arrêt sur image de 140 ms puis le ralenti (V1.1 § 5.1–5.2). Les attaques qui ne sont pas parfaites et les autres gestes ne changent pas.
 - **Attaque de l'humain** (`playerId === humanId`) : un **flash d'écran**.
   - Un calque plein écran, blanc chaud, au-dessus du canvas et sous les panneaux de l'ATH, qui ne capte aucun clic.
-  - Son opacité vaut `fx.flash.peak · (0,5 + 0,5 · quality)` au moment de la touche, puis décroît linéairement jusqu'à 0 en `fx.flash.seconds`, en **temps réel**, pour être vu pendant le gel.
+  - Son opacité vaut `fx.flash.peak` au moment de la touche, puis décroît linéairement jusqu'à 0 en `fx.flash.seconds`, en **temps réel**, pour être vu pendant le gel.
 - **Attaque d'un autre joueur** : une **onde de choc** dans la scène 3D, au point de frappe (la position du ballon dans l'état produit par le step de la touche). Elle se compose :
   - d'un anneau tourné vers la caméra, dont le rayon passe de 0,2 m à `fx.shockwave.radius` et l'opacité de 1 à 0, en `fx.shockwave.seconds` de temps réel, avec un ralentissement en fin de course ;
   - de `fx.shockwave.lines` courts traits qui partent du centre en étoile ;
@@ -161,7 +161,7 @@ shockwave: { seconds: 0.3, radius: 1.2, lines: 8 },
 5. **Dérive de `yaw`** après de longues sessions : ramené dans `(−π, π]`.
 6. **`yaw = 0`** donne des commandes identiques à aujourd'hui : non-régression.
 7. **Nouveau match ou « Rejouer » :** l'orientation repart face au filet.
-8. **Plusieurs attaques rapprochées** (attaque puis contre) : le flash garde l'opacité la plus forte sans s'additionner, et les ondes ne dépassent jamais 4.
+8. **Plusieurs attaques parfaites rapprochées :** le flash ne s'additionne pas et ne dépasse jamais `fx.flash.peak`, et les ondes ne dépassent jamais 4.
 
 ## 9. Tests
 
@@ -181,8 +181,9 @@ shockwave: { seconds: 0.3, radius: 1.2, lines: 8 },
   - le stick droit alimente `look.stick` et non plus `aim` ;
   - `KeyQ` / `KeyE` donnent −1 / +1.
 - **Impact :**
-  - flash pour une attaque de l'humain, avec une opacité qui dépend de la qualité ;
-  - aucun flash pour une attaque d'un autre joueur, mais une onde de choc ;
+  - flash pour une attaque parfaite de l'humain ;
+  - rien pour une attaque qui n'est pas parfaite, qu'elle vienne de l'humain ou d'un autre joueur ;
+  - aucun flash pour une attaque parfaite d'un autre joueur, mais une onde de choc ;
   - la décroissance se fait en temps réel ;
   - avec mouvement réduit, une onde de choc au lieu du flash ;
   - non-cumul du flash, et 4 ondes au plus.
