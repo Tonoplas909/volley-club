@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { GameEvent, GameState, PlayerRole, Vec2, Vec3 } from '../sim/types';
 import { createBall } from './ball';
-import { createCameraRig } from './camera';
+import { createCameraRig, isHumanAttacking } from './camera';
 import type { CameraView } from '../camera/view';
 import type { FxFrame } from '../fx/fx';
 import { createDebug } from './debug';
@@ -94,7 +94,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
         cameraTarget.x = humanPos.x;
         cameraTarget.z = humanPos.z;
       }
-      rig.update(humanPos ? cameraTarget : null, overlay.view, dt, overlay.fx.shake);
+      rig.update(humanPos ? cameraTarget : null, overlay.view, isHumanAttacking(curr, overlay.humanId), dt, overlay.fx.shake);
       // Les ondes sont en temps réel (age) : elles se voient pendant l'arrêt sur image.
       shockwaves.update(overlay.fx.shockwaves, rig.camera);
       gl.render(scene, rig.camera);
