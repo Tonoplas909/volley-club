@@ -14,6 +14,7 @@ Jouer **en 3e personne**, avec une caméra derrière son personnage que l'on ori
 - L'ancienne caméra fixe (derrière l'équipe) **disparaît** : pas d'option pour la garder.
 - **Aucun recentrage** automatique ni par touche.
 - Une mini-carte **fixe**, avec un **cône de vue** qui montre la direction de la caméra.
+- **Effet d'impact sur les attaques** (ajout) : un **flash** à l'écran quand c'est **toi** qui fais une attaque avec arrêt sur image ; pour l'attaque d'un **autre joueur**, vue de l'extérieur, un **effet visuel** dans la scène plutôt qu'un flash.
 
 ### 1.2 Critères de réussite
 
@@ -24,6 +25,7 @@ Jouer **en 3e personne**, avec une caméra derrière son personnage que l'on ori
 5. Libérer la souris (Échap, Alt+Tab) met le jeu en pause. On reprend d'un clic, ce qui recapture la souris.
 6. Sans souris capturée (refus du navigateur, pavé tactile, manette seule), le jeu reste jouable : la caméra s'oriente avec le stick droit ou avec les touches `KeyQ` / `KeyE` (A / E en AZERTY).
 7. La mini-carte reste fixe, ton équipe en bas, avec un cône qui part du joueur humain dans la direction de la caméra.
+8. Une attaque touchée par l'humain fait un flash bref de l'écran. Une attaque touchée par un autre joueur fait une onde de choc visible au point de frappe, sans flash. Les deux restent visibles pendant l'arrêt sur image.
 
 ### 1.3 Hors périmètre
 
@@ -116,6 +118,24 @@ export function updateView(view: CameraView, look: LookInput, realDt: number): C
 - **Menu :** l'encart des contrôles ajoute « Caméra » / « souris · stick droit · A / E ».
 - **Supprimé :** la caméra fixe derrière l'équipe (constantes `CAM_*` et `LOOK_*` de `camera.ts`).
 
+### 6.1 Effets d'impact des attaques
+
+- **Déclencheur :** tout événement `touch` de geste `attack`. Ce sont les touches qui provoquent l'arrêt sur image de 140 ms (V1.1 § 5.1). Les autres gestes ne changent pas.
+- **Attaque de l'humain** (`playerId === humanId`) : un **flash d'écran**.
+  - Un calque plein écran, blanc chaud, au-dessus du canvas et sous les panneaux de l'ATH, qui ne capte aucun clic.
+  - Son opacité vaut `fx.flash.peak · (0,5 + 0,5 · quality)` au moment de la touche, puis décroît linéairement jusqu'à 0 en `fx.flash.seconds`, en **temps réel**, pour être vu pendant le gel.
+- **Attaque d'un autre joueur** : une **onde de choc** dans la scène 3D, au point de frappe (la position du ballon dans l'état produit par le step de la touche). Elle se compose :
+  - d'un anneau tourné vers la caméra, dont le rayon passe de 0,2 m à `fx.shockwave.radius` et l'opacité de 1 à 0, en `fx.shockwave.seconds` de temps réel, avec un ralentissement en fin de course ;
+  - de `fx.shockwave.lines` courts traits qui partent du centre en étoile ;
+  - teintés de la couleur de l'équipe qui attaque. Jamais de flash.
+- **Mouvement réduit** (`prefers-reduced-motion`) : pas de flash, qui peut gêner les personnes sensibles aux éclairs. L'attaque de l'humain montre alors l'onde de choc, comme celle des autres.
+- **Où vit le code :**
+  - `createFx` reçoit `humanId` ;
+  - `FxFrame` gagne `flash: number` (de 0 à 1) et `shockwaves: readonly { pos: Vec3; age: number; team: TeamId }[]`. `age` est en secondes de temps réel, et les ondes finies sont retirées ;
+  - les vagues sont limitées à 4 à la fois, et les plus anciennes sont retirées en premier ;
+  - pendant la pause, `fx.advance` n'est pas appelé, donc le flash et les ondes restent figés.
+- **Affichage :** le flash est un élément DOM dans `src/ui/` ; les ondes sont dessinées par un module de rendu (`src/render/shockwave.ts`), avec un pool d'objets réutilisés.
+
 ## 7. Réglages (`src/sim/tuning.ts`)
 
 ```ts
@@ -127,6 +147,9 @@ camera: {
   followSmoothing: 10,        // 1/s
   maxMouseDeltaPx: 200,
 },
+// et dans fx :
+flash: { peak: 0.6, seconds: 0.18 },
+shockwave: { seconds: 0.3, radius: 1.2, lines: 8 },
 ```
 
 ## 8. Points de vigilance
@@ -138,6 +161,7 @@ camera: {
 5. **Dérive de `yaw`** après de longues sessions : ramené dans `(−π, π]`.
 6. **`yaw = 0`** donne des commandes identiques à aujourd'hui : non-régression.
 7. **Nouveau match ou « Rejouer » :** l'orientation repart face au filet.
+8. **Plusieurs attaques rapprochées** (attaque puis contre) : le flash garde l'opacité la plus forte sans s'additionner, et les ondes ne dépassent jamais 4.
 
 ## 9. Tests
 
@@ -156,4 +180,10 @@ camera: {
   - `look` accumule `movementX` / `movementY` seulement quand la souris est capturée ;
   - le stick droit alimente `look.stick` et non plus `aim` ;
   - `KeyQ` / `KeyE` donnent −1 / +1.
+- **Impact :**
+  - flash pour une attaque de l'humain, avec une opacité qui dépend de la qualité ;
+  - aucun flash pour une attaque d'un autre joueur, mais une onde de choc ;
+  - la décroissance se fait en temps réel ;
+  - avec mouvement réduit, une onde de choc au lieu du flash ;
+  - non-cumul du flash, et 4 ondes au plus.
 - **Visuel :** captures sans écran avec la caméra derrière le joueur, tournée de 90°, inclinée au maximum, et la mini-carte avec son cône. Aucune erreur en console, y compris quand `requestPointerLock` est indisponible.
