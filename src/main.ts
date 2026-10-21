@@ -11,7 +11,7 @@ import './ui/styles.css';
 /** Touches dont l'action par défaut du navigateur (défilement, aide) est supprimée pendant le match. */
 const GAME_KEYS: ReadonlySet<string> = new Set([
   'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'F1',
-  'ShiftLeft', 'ShiftRight',
+  'ShiftLeft', 'ShiftRight', 'KeyQ', 'KeyE',
 ]);
 
 const DEFAULT_CONFIG: MatchConfig = {

@@ -5,6 +5,10 @@ function keyEvent(type: 'keydown' | 'keyup', code: string, cancelable = false): 
   return Object.assign(new Event(type, { cancelable }), { code });
 }
 
+function mouseEvent(movementX: number, movementY: number): Event {
+  return Object.assign(new Event('mousemove'), { movementX, movementY });
+}
+
 function fakePad(axes: number[], buttons: boolean[]): Gamepad {
   return {
     connected: true,
@@ -179,18 +183,56 @@ describe('createInput manette', () => {
     input.dispose();
   });
 
-  it('stick droit actif (> 0,3) pilote la visée', () => {
-    setPads([fakePad([0, 0, 0.5, 0], [])]);
+  it('stick droit : ne pilote plus la visée, la visée suit le déplacement fusionné', () => {
+    setPads([fakePad([0, 0, 0.8, 0], [])]);
     const input = createInput(new EventTarget());
-    const { command } = input.poll();
-    expect(command.aim.x).toBeCloseTo(-0.5, 9);
-    expect(command.aim.z).toBeCloseTo(0, 9);
+    const { command, look } = input.poll();
+    expect(look.stick.x).toBeGreaterThan(0);
     expect(command.move).toEqual({ x: 0, z: 0 });
+    expect(command.aim).toEqual(command.move);
+    input.dispose();
+  });
+
+  it('stick droit actif et stick gauche poussé : aim égale le déplacement du stick gauche', () => {
+    setPads([fakePad([1, 0, 0, 0.9], [])]);
+    const input = createInput(new EventTarget());
+    const { command, look } = input.poll();
+    expect(command.aim).toEqual(command.move);
+    expect(command.aim.x).toBeCloseTo(-1, 9);
+    expect(look.stick.z).toBeGreaterThan(0);
+    input.dispose();
+  });
+
+  it('stick droit : x positif à droite, z positif en bas (axes 2 et 3 bruts)', () => {
+    setPads([fakePad([0, 0, 0.8, 0.6], [])]);
+    const input = createInput(new EventTarget());
+    const { look } = input.poll();
+    expect(look.stick.x).toBeCloseTo(0.8, 9);
+    expect(look.stick.z).toBeCloseTo(0.6, 9);
+    setPads([fakePad([0, 0, -1, -1], [])]);
+    const { look: up } = input.poll();
+    expect(up.stick.x).toBeLessThan(0);
+    expect(up.stick.z).toBeLessThan(0);
+    expect(Math.hypot(up.stick.x, up.stick.z)).toBeCloseTo(1, 9);
+    input.dispose();
+  });
+
+  it('stick droit sous la zone morte : look.stick vaut (0, 0)', () => {
+    setPads([fakePad([0, 0, 0.1, -0.15], [])]);
+    const input = createInput(new EventTarget());
+    expect(input.poll().look.stick).toEqual({ x: 0, z: 0 });
+    input.dispose();
+  });
+
+  it('sans manette, look.stick vaut (0, 0)', () => {
+    setPads([]);
+    const input = createInput(new EventTarget());
+    expect(input.poll().look.stick).toEqual({ x: 0, z: 0 });
     input.dispose();
   });
 
   it('stick droit inactif : la visée suit le déplacement', () => {
-    setPads([fakePad([0, 0, 0.2, 0.2], [])]);
+    setPads([fakePad([0, 0, 0.1, 0.1], [])]);
     const target = new EventTarget();
     const input = createInput(target);
     target.dispatchEvent(keyEvent('keydown', 'KeyS'));
@@ -359,6 +401,110 @@ describe('createInput plongeon', () => {
 
   it('le bouton B seul rend la manette active', () => {
     setPads([fakePad([0, 0], [false, true])]);
+    const input = createInput(new EventTarget());
+    expect(input.poll().device).toBe('gamepad');
+    input.dispose();
+  });
+});
+
+describe('createInput orientation de la caméra', () => {
+  it('souris capturée : les mousemove sont sommés, puis remis à 0 au poll suivant', () => {
+    setPads([]);
+    const target = new EventTarget();
+    const input = createInput(target, { mouseLocked: () => true });
+    target.dispatchEvent(mouseEvent(10, -5));
+    target.dispatchEvent(mouseEvent(20, 0));
+    const first = input.poll().look;
+    expect(first.mouseDx).toBe(30);
+    expect(first.mouseDy).toBe(-5);
+    const second = input.poll().look;
+    expect(second.mouseDx).toBe(0);
+    expect(second.mouseDy).toBe(0);
+    input.dispose();
+  });
+
+  it('souris non capturée (par défaut) : les mousemove sont ignorés', () => {
+    setPads([]);
+    const target = new EventTarget();
+    const input = createInput(target);
+    target.dispatchEvent(mouseEvent(10, -5));
+    const { look } = input.poll();
+    expect(look.mouseDx).toBe(0);
+    expect(look.mouseDy).toBe(0);
+    input.dispose();
+  });
+
+  it('la capture est évaluée au moment de l’événement', () => {
+    setPads([]);
+    let locked = false;
+    const target = new EventTarget();
+    const input = createInput(target, { mouseLocked: () => locked });
+    target.dispatchEvent(mouseEvent(7, 7));
+    locked = true;
+    target.dispatchEvent(mouseEvent(3, 4));
+    locked = false;
+    target.dispatchEvent(mouseEvent(100, 100));
+    const { look } = input.poll();
+    expect(look.mouseDx).toBe(3);
+    expect(look.mouseDy).toBe(4);
+    input.dispose();
+  });
+
+  it('dispose retire l’écouteur de souris', () => {
+    setPads([]);
+    const target = new EventTarget();
+    const input = createInput(target, { mouseLocked: () => true });
+    input.dispose();
+    target.dispatchEvent(mouseEvent(10, 10));
+    expect(input.poll().look.mouseDx).toBe(0);
+  });
+
+  it('KeyE donne keys = 1, KeyQ donne -1, les deux donnent 0', () => {
+    setPads([]);
+    const target = new EventTarget();
+    const input = createInput(target);
+    expect(input.poll().look.keys).toBe(0);
+    target.dispatchEvent(keyEvent('keydown', 'KeyE'));
+    expect(input.poll().look.keys).toBe(1);
+    target.dispatchEvent(keyEvent('keyup', 'KeyE'));
+    target.dispatchEvent(keyEvent('keydown', 'KeyQ'));
+    expect(input.poll().look.keys).toBe(-1);
+    target.dispatchEvent(keyEvent('keydown', 'KeyE'));
+    expect(input.poll().look.keys).toBe(0);
+    input.dispose();
+  });
+
+  it('KeyQ et KeyE ne déplacent pas le joueur', () => {
+    setPads([]);
+    const target = new EventTarget();
+    const input = createInput(target);
+    target.dispatchEvent(keyEvent('keydown', 'KeyE'));
+    expect(input.poll().command.move).toEqual({ x: 0, z: 0 });
+    input.dispose();
+  });
+
+  it('souris capturée en mouvement : activité clavier, même après la manette', () => {
+    setPads([fakePad([0, 0], [true])]);
+    const target = new EventTarget();
+    const input = createInput(target, { mouseLocked: () => true });
+    expect(input.poll().device).toBe('gamepad');
+    target.dispatchEvent(mouseEvent(5, 0));
+    expect(input.poll().device).toBe('keyboard');
+    input.dispose();
+  });
+
+  it('souris non capturée : pas d’activité clavier', () => {
+    setPads([fakePad([0, 0], [true])]);
+    const target = new EventTarget();
+    const input = createInput(target, { mouseLocked: () => false });
+    expect(input.poll().device).toBe('gamepad');
+    target.dispatchEvent(mouseEvent(5, 0));
+    expect(input.poll().device).toBe('gamepad');
+    input.dispose();
+  });
+
+  it('stick droit seul : activité manette', () => {
+    setPads([fakePad([0, 0, 0, 0.5], [])]);
     const input = createInput(new EventTarget());
     expect(input.poll().device).toBe('gamepad');
     input.dispose();

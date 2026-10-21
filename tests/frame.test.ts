@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { NO_LOOK } from '../src/camera/view';
 import { advanceFrame, newSession, type Session } from '../src/frame';
 import type { InputFrame } from '../src/input/input';
 import { STEP_DT } from '../src/loop';
@@ -38,7 +39,7 @@ function humanServesSeed(): number {
 function input(command: Partial<Command> = {}, extra: Partial<InputFrame> = {}): InputFrame {
   return {
     command: { ...NEUTRAL_COMMAND, ...command },
-    pausePressed: false, debugPressed: false, device: 'keyboard', ...extra,
+    pausePressed: false, debugPressed: false, device: 'keyboard', look: NO_LOOK, ...extra,
   };
 }
 const press = (): InputFrame => input({ actionPressed: true });
