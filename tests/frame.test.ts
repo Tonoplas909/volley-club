@@ -577,4 +577,11 @@ describe('souris capturée : pause et aide', () => {
     s.paused = true;
     expect(advanceFrame(s, input(), 0.016, 1.064, free).hud.mouseHint).toBe(false);
   });
+
+  it('mouseHint : masquée tant qu’une demande de capture est en attente, affichée ensuite', () => {
+    const s = newSession(config(1), OPTIONS);
+    const pending = { locked: false, lockLost: false, requestPending: true };
+    expect(advanceFrame(s, input(), 0.016, 1, pending).hud.mouseHint).toBe(false);
+    expect(advanceFrame(s, input(), 0.016, 1.016, { ...pending, requestPending: false }).hud.mouseHint).toBe(true);
+  });
 });

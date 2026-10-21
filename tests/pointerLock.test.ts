@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  canvasClickAction, LOCK_LOSS_GUARD_SECONDS, pausesOnLockEvent, resolvePause, showMouseHint,
+  canvasClickAction, LOCK_LOSS_GUARD_SECONDS, LOCK_REQUEST_WINDOW_MS, lockRequestPending, pausesOnLockEvent, resolvePause, showMouseHint,
   type ClickInput, type HintInput, type LockEvent, type PauseInput,
 } from '../src/pointerLock';
 
@@ -89,7 +89,7 @@ describe('resolvePause', () => {
 });
 
 const hint = (over: Partial<HintInput> = {}): HintInput => ({
-  hasSession: true, paused: false, locked: false, device: 'keyboard', phase: 'rally', ...over,
+  hasSession: true, paused: false, locked: false, requestPending: false, device: 'keyboard', phase: 'rally', ...over,
 });
 
 describe('showMouseHint', () => {
@@ -102,6 +102,28 @@ describe('showMouseHint', () => {
     expect(showMouseHint(hint({ locked: true }))).toBe(false);
     expect(showMouseHint(hint({ hasSession: false }))).toBe(false);
     expect(showMouseHint(hint({ phase: 'matchEnd' }))).toBe(false);
+  });
+});
+
+describe('aide pendant une demande de capture', () => {
+  it('masquée tant que la demande est en attente', () => {
+    expect(showMouseHint(hint({ requestPending: true }))).toBe(false);
+  });
+  it('affichée une fois la fenêtre passée sans capture', () => {
+    const requestedAt = 5000;
+    const pendingAt = (t: number): boolean => lockRequestPending(t, requestedAt);
+    expect(showMouseHint(hint({ requestPending: pendingAt(requestedAt + 16) }))).toBe(false);
+    expect(showMouseHint(hint({ requestPending: pendingAt(requestedAt + LOCK_REQUEST_WINDOW_MS - 1) }))).toBe(false);
+    expect(showMouseHint(hint({ requestPending: pendingAt(requestedAt + LOCK_REQUEST_WINDOW_MS) }))).toBe(true);
+  });
+});
+
+describe('lockRequestPending', () => {
+  it('vrai dans la fenêtre, faux ensuite et sans demande', () => {
+    expect(lockRequestPending(100, 100)).toBe(true);
+    expect(lockRequestPending(100 + LOCK_REQUEST_WINDOW_MS - 1, 100)).toBe(true);
+    expect(lockRequestPending(100 + LOCK_REQUEST_WINDOW_MS, 100)).toBe(false);
+    expect(lockRequestPending(100, -Infinity)).toBe(false);
   });
 });
 

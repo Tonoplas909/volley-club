@@ -7,13 +7,27 @@ import type { MatchPhase } from './sim/types';
 import type { InputDevice } from './input/input';
 
 /** État de la souris vu par une frame : capturée ou non, et capture perdue depuis la frame précédente. */
-export type PointerStatus = { locked: boolean; lockLost: boolean };
-export const NO_POINTER: PointerStatus = { locked: false, lockLost: false };
+export type PointerStatus = {
+  locked: boolean;
+  lockLost: boolean;
+  /** Une demande de capture de notre part vient d'être faite et n'a pas encore reçu de réponse (cf. `lockRequestPending`). Faux si omis. */
+  requestPending?: boolean;
+};
+export const NO_POINTER: PointerStatus = { locked: false, lockLost: false, requestPending: false };
 
 /** Après une perte de capture, un appui Pause arrivant dans ce délai (secondes réelles) est ignoré : c'est le même Échap. */
 export const LOCK_LOSS_GUARD_SECONDS = 0.25;
 /** Une erreur de capture arrivant dans ce délai (ms) après notre demande est le refus de cette demande. */
 export const LOCK_REQUEST_WINDOW_MS = 1000;
+
+/**
+ * Notre demande de capture est-elle encore « en attente » ? Vrai dans la fenêtre `LOCK_REQUEST_WINDOW_MS`
+ * qui suit la demande (instants en ms). Le navigateur répond de façon asynchrone : pendant ce délai, un
+ * `pointerlockerror` est le refus de cette demande, et l'aide ne doit pas clignoter.
+ */
+export function lockRequestPending(nowMs: number, requestedAtMs: number): boolean {
+  return nowMs - requestedAtMs < LOCK_REQUEST_WINDOW_MS;
+}
 
 export type LockEvent = {
   kind: 'change' | 'error';
@@ -70,14 +84,17 @@ export type HintInput = {
   locked: boolean;
   device: InputDevice;
   phase: MatchPhase;
+  /** Demande de capture en attente de réponse : l'aide attend, pour ne pas clignoter si la capture réussit. */
+  requestPending: boolean;
 };
 
 /**
  * « Clique pour orienter la caméra à la souris » : match en cours, sans pause, souris non capturée,
- * et pas à la manette. Pas non plus à `matchEnd` (la souris y sert aux boutons).
+ * et pas à la manette. Pas non plus à `matchEnd` (la souris y sert aux boutons), ni tant qu'une demande
+ * de capture de notre part est en attente (la capture arrive de façon asynchrone).
  */
 export function showMouseHint(i: HintInput): boolean {
-  return i.hasSession && !i.paused && !i.locked && i.device !== 'gamepad' && i.phase !== 'matchEnd';
+  return i.hasSession && !i.paused && !i.locked && !i.requestPending && i.device !== 'gamepad' && i.phase !== 'matchEnd';
 }
 
 export type ClickInput = { hasSession: boolean; paused: boolean; locked: boolean; phase: MatchPhase | null };

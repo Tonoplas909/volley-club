@@ -209,7 +209,8 @@ export function advanceFrame(
     now,
     view: s.view,
     mouseHint: showMouseHint({
-      hasSession: true, paused: s.paused, locked: pointer.locked, device: frameInput.device, phase: curr.phase,
+      hasSession: true, paused: s.paused, locked: pointer.locked, requestPending: pointer.requestPending ?? false, device: frameInput.device,
+      phase: curr.phase,
     }),
   };
   return { overlay, hud };

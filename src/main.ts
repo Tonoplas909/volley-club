@@ -2,7 +2,7 @@ import { initialView } from './camera/view';
 import { advanceFrame, NEUTRAL_FX, newSession, type MatchOptions, type Session } from './frame';
 import { createInput } from './input/input';
 import { STEP_DT } from './loop';
-import { canvasClickAction, LOCK_REQUEST_WINDOW_MS, pausesOnLockEvent, type LockEvent } from './pointerLock';
+import { canvasClickAction, lockRequestPending, pausesOnLockEvent, type LockEvent } from './pointerLock';
 import { createRenderer, isWebGLAvailable, type Overlay, type Renderer } from './render/renderer';
 import { createInitialState } from './sim/simulation';
 import type { MatchConfig } from './sim/types';
@@ -69,7 +69,7 @@ function start(canvas: HTMLCanvasElement, ui: HTMLElement): void {
       locked: isLocked(),
       hasSession: session !== null,
       phase: session?.curr.phase ?? null,
-      requestPending: performance.now() - lockRequestedAt < LOCK_REQUEST_WINDOW_MS,
+      requestPending: lockRequestPending(performance.now(), lockRequestedAt),
     });
     if (lost) lockLost = true;
   }
@@ -157,7 +157,7 @@ function start(canvas: HTMLCanvasElement, ui: HTMLElement): void {
     }
 
     const wasPaused = s.paused;
-    const pointer = { locked: isLocked(), lockLost };
+    const pointer = { locked: isLocked(), lockLost, requestPending: lockRequestPending(now, lockRequestedAt) };
     lockLost = false;
     const { overlay, hud: view } = advanceFrame(s, frameInput, frameDt, now / 1000, pointer);
     if (wasPaused && !s.paused) requestLock(); // Échap en pause : tente une recapture (peut être refusée)
