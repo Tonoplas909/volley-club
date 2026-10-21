@@ -198,6 +198,7 @@ export function advanceFrame(s: Session, frameInput: InputFrame, frameDt: number
     diveReadiness: humanId === null ? 1 : diveReadiness(curr, humanId),
     lastPress,
     now,
+    view: s.view,
   };
   return { overlay, hud };
 }

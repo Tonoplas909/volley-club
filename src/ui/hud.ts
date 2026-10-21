@@ -1,3 +1,4 @@
+import type { CameraView } from '../camera/view';
 import type { GameState, Gesture } from '../sim/types';
 import { createDiveGauge } from './diveGauge';
 import { createGestureBanner } from './gestureBanner';
@@ -20,6 +21,8 @@ export interface HudView {
   lastPress: LastPressView | null;
   /** Secondes réelles. */
   now: number;
+  /** Orientation de la caméra : le cône de la mini-carte la suit. */
+  view: CameraView;
 }
 
 export interface Hud {
@@ -149,7 +152,7 @@ export function createHud(root: HTMLElement, actions: HudActions): Hud {
       banner.update(view.paused ? null : view.expected, view.device, view.diveHint);
       gauge.update(humanId === null ? null : view.diveReadiness);
       card.update(view.lastPress, view.now);
-      minimap.update(state, humanId);
+      minimap.update(state, humanId, view.view);
     },
     hide(): void {
       container.hidden = true;

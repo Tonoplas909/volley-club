@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { courtToMinimap, type MinimapSize } from '../../src/ui/minimapMath';
+import { courtToMinimap, minimapCone, type MinimapSize } from '../../src/ui/minimapMath';
 
 const SIZE: MinimapSize = { width: 180, height: 100, padding: 8 };
 
@@ -52,5 +52,41 @@ describe('courtToMinimap', () => {
     const portrait: MinimapSize = { width: 100, height: 180, padding: 10 };
     expect(courtToMinimap({ x: 0, z: 8 }, portrait).y).toBeCloseTo(10);
     expect(courtToMinimap({ x: 0, z: -8 }, portrait).y).toBeCloseTo(170);
+  });
+});
+
+describe('minimapCone', () => {
+  const center = courtToMinimap({ x: 0, z: 0 }, SIZE);
+
+  it('à yaw 0, la pointe est sur le joueur et les bords vont vers le camp adverse (haut)', () => {
+    const c = minimapCone({ x: 0, z: 0 }, 0, SIZE);
+    expect(c.apex).toEqual(center);
+    expect(c.left.y).toBeLessThan(c.apex.y);
+    expect(c.right.y).toBeLessThan(c.apex.y);
+    // symétrique autour de la verticale
+    expect(c.left.x + c.right.x).toBeCloseTo(2 * c.apex.x);
+  });
+
+  it('à yaw −π/2, le cône va vers la droite de la mini-carte (x inversé)', () => {
+    const c = minimapCone({ x: 0, z: 0 }, -Math.PI / 2, SIZE);
+    expect(c.left.x).toBeGreaterThan(c.apex.x);
+    expect(c.right.x).toBeGreaterThan(c.apex.x);
+    expect(c.left.y + c.right.y).toBeCloseTo(2 * c.apex.y);
+  });
+
+  it('à yaw π, le cône va vers le bas', () => {
+    const c = minimapCone({ x: 0, z: 0 }, Math.PI, SIZE);
+    expect(c.left.y).toBeGreaterThan(c.apex.y);
+    expect(c.right.y).toBeGreaterThan(c.apex.y);
+  });
+
+  it("les bords sont à 4 m à l'échelle, avec un demi-angle de 30°", () => {
+    const metre = center.y - courtToMinimap({ x: 0, z: 1 }, SIZE).y; // pixels par mètre
+    const c = minimapCone({ x: 0, z: 0 }, 0.7, SIZE);
+    for (const e of [c.left, c.right]) {
+      expect(Math.hypot(e.x - c.apex.x, e.y - c.apex.y)).toBeCloseTo(4 * metre);
+    }
+    const chord = Math.hypot(c.left.x - c.right.x, c.left.y - c.right.y);
+    expect(chord).toBeCloseTo(2 * 4 * metre * Math.sin(Math.PI / 6));
   });
 });

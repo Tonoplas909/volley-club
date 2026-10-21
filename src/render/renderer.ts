@@ -8,6 +8,7 @@ import { createDebug } from './debug';
 import { createMarkers } from './markers';
 import { createPlayers } from './players';
 import { createScene } from './scene';
+import { TUNING } from '../sim/tuning';
 
 export type Overlay = {
   humanId: number | null;
@@ -57,6 +58,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   let time = 0;
   let last: number | null = null;
   const ballPos: Vec3 = { x: 0, y: 0, z: 0 };
+  const cameraTarget: Vec3 = { x: 0, y: TUNING.camera.targetHeight, z: 0 };
 
   return {
     render(prev, curr, alpha, overlay) {
@@ -84,7 +86,13 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
         players.positionOf,
       );
       debug.update(curr, overlay.debug, players.positionOf);
-      rig.update(ballPos.x, dt, overlay.fx.shake);
+      // Cible : l'humain interpolé, à hauteur fixe (saut et plongeon ignorés). Sans humain, la caméra garde sa cible.
+      const humanPos = overlay.humanId === null ? null : players.positionOf(overlay.humanId);
+      if (humanPos) {
+        cameraTarget.x = humanPos.x;
+        cameraTarget.z = humanPos.z;
+      }
+      rig.update(humanPos ? cameraTarget : null, overlay.view, dt, overlay.fx.shake);
       gl.render(scene, rig.camera);
     },
     resize(width, height) {
