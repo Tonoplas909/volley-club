@@ -82,6 +82,19 @@ export function createMinimap(root: HTMLElement): Minimap {
       ctx.lineTo(n1.x, n1.y);
       ctx.stroke();
 
+      // Cône de vue de la caméra, sous la croix d'atterrissage et les pastilles.
+      const human = humanId === null ? undefined : state.players.find((pl) => pl.id === humanId);
+      if (human) {
+        const cone = minimapCone(human.pos, view.yaw, SIZE);
+        ctx.beginPath();
+        ctx.moveTo(cone.apex.x, cone.apex.y);
+        ctx.lineTo(cone.left.x, cone.left.y);
+        ctx.lineTo(cone.right.x, cone.right.y);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+        ctx.fill();
+      }
+
       const { ball } = state;
       if (ball.mode === 'flying') {
         const l = landingPoint(ball.traj);
@@ -94,19 +107,6 @@ export function createMinimap(root: HTMLElement): Minimap {
         ctx.moveTo(p.x + CROSS, p.y - CROSS);
         ctx.lineTo(p.x - CROSS, p.y + CROSS);
         ctx.stroke();
-      }
-
-      // Cône de vue de la caméra, sous les pastilles.
-      const human = humanId === null ? undefined : state.players.find((pl) => pl.id === humanId);
-      if (human) {
-        const cone = minimapCone(human.pos, view.yaw, SIZE);
-        ctx.beginPath();
-        ctx.moveTo(cone.apex.x, cone.apex.y);
-        ctx.lineTo(cone.left.x, cone.left.y);
-        ctx.lineTo(cone.right.x, cone.right.y);
-        ctx.closePath();
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
-        ctx.fill();
       }
 
       // Humain dessiné en dernier parmi les joueurs pour rester au-dessus.
