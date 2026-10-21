@@ -538,3 +538,43 @@ describe('advanceFrame : commandes relatives à la caméra', () => {
     expect(gestureFor(placed, HUMAN, cmd!)).toBe('set');
   });
 });
+
+describe('souris capturée : pause et aide', () => {
+  const free = { locked: false, lockLost: false };
+
+  it('capture perdue : pause, et l’Échap livré en plus (même frame ou suivante) ne dépause pas', () => {
+    const s = newSession(config(1), OPTIONS);
+    advanceFrame(s, input({}, { pausePressed: true }), 0.016, 1, { locked: false, lockLost: true });
+    expect(s.paused).toBe(true);
+    advanceFrame(s, input({}, { pausePressed: true }), 0.016, 1.016, free);
+    expect(s.paused).toBe(true);
+    // Une fois la garde épuisée (temps réel), Échap reprend.
+    advanceFrame(s, input(), 0.3, 1.4, free);
+    advanceFrame(s, input({}, { pausePressed: true }), 0.016, 1.416, free);
+    expect(s.paused).toBe(false);
+  });
+
+  it('capture perdue en pause : reste en pause (idempotent)', () => {
+    const s = newSession(config(1), OPTIONS);
+    s.paused = true;
+    advanceFrame(s, input(), 0.016, 1, { locked: false, lockLost: true });
+    expect(s.paused).toBe(true);
+  });
+
+  it('capture perdue à matchEnd : pas de pause', () => {
+    const s = newSession(config(1), OPTIONS);
+    s.curr = { ...s.curr, phase: 'matchEnd' };
+    advanceFrame(s, input(), 0.016, 1, { locked: false, lockLost: true });
+    expect(s.paused).toBe(false);
+  });
+
+  it('mouseHint : vrai souris libre au clavier, faux capturée, en pause ou à la manette', () => {
+    const s = newSession(config(1), OPTIONS);
+    expect(advanceFrame(s, input(), 0.016, 1, free).hud.mouseHint).toBe(true);
+    expect(advanceFrame(s, input(), 0.016, 1.016).hud.mouseHint).toBe(true); // pointeur par défaut : non capturé
+    expect(advanceFrame(s, input(), 0.016, 1.032, { locked: true, lockLost: false }).hud.mouseHint).toBe(false);
+    expect(advanceFrame(s, input({}, { device: 'gamepad' }), 0.016, 1.048, free).hud.mouseHint).toBe(false);
+    s.paused = true;
+    expect(advanceFrame(s, input(), 0.016, 1.064, free).hud.mouseHint).toBe(false);
+  });
+});

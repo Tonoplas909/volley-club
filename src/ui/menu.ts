@@ -17,6 +17,7 @@ const CONTROLS: readonly (readonly [string, string])[] = [
   ['Action (servir, passer, attaquer, contrer)', 'Espace · bouton A'],
   ['Plongeon', 'Maj · bouton B'],
   ['Visée', 'direction tenue au moment de l’appui'],
+  ['Caméra', 'souris · stick droit · A / E'],
   ['Pause', 'Échap · Start'],
   ['Debug et ralenti', 'F1'],
 ];

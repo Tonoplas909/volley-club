@@ -7,6 +7,7 @@ import { initialView, screenToWorld, updateView, type CameraView } from './camer
 import { createFx, type Fx, type FxFrame } from './fx/fx';
 import type { InputFrame } from './input/input';
 import { consumeAccumulator, isDiscontinuity, MAX_FRAME_DT } from './loop';
+import { NO_POINTER, resolvePause, showMouseHint, type PointerStatus } from './pointerLock';
 import type { Overlay } from './render/renderer';
 import { assignRoles, targetPosition } from './sim/ai/decisions';
 import { createBrain, type Brain } from './sim/ai/brain';
@@ -39,6 +40,8 @@ export type Session = {
   curr: GameState;
   acc: number;
   paused: boolean;
+  /** Garde (secondes réelles) qui ignore l'appui Pause suivant une perte de capture de la souris (même Échap). */
+  pauseGuard: number;
   debug: boolean;
   /** Orientation de la caméra (présentation) : tourne en temps réel, jamais en pause, sans effet sur la simulation. */
   view: CameraView;
@@ -70,7 +73,7 @@ export function newSession(config: MatchConfig, options: MatchOptions): Session 
   const human = state.players.find((p) => p.id === config.humanPlayerId);
   return {
     config, options, brains, fx: createFx({ reducedMotion: options.reducedMotion }),
-    prev: state, curr: state, acc: 0, paused: false, debug: false, view: initialView(human?.team ?? 0), actionLatch: false, diveLatch: false, events: [],
+    prev: state, curr: state, acc: 0, paused: false, pauseGuard: 0, debug: false, view: initialView(human?.team ?? 0), actionLatch: false, diveLatch: false, events: [],
     pendingExplanation: null, lastPress: null, lastQuality: 0,
   };
 }
@@ -130,12 +133,18 @@ function playStep(s: Session, frameInput: InputFrame, now: number): void {
 }
 
 /**
- * Avance une session d'une frame réelle de `frameDt` secondes ; `now` en secondes réelles.
+ * Avance une session d'une frame réelle de `frameDt` secondes ; `now` en secondes réelles ; `pointer` dit si la
+ * souris est capturée et si la capture vient d'être perdue (perte = pause).
  * Pendant la pause, ni l'impact ni la simulation n'avancent : un gel ou un ralenti reprend là où il
  * en était. Renvoie ce qu'il faut afficher (rendu et ATH).
  */
-export function advanceFrame(s: Session, frameInput: InputFrame, frameDt: number, now: number): FrameOutput {
-  if (frameInput.pausePressed && s.curr.phase !== 'matchEnd') s.paused = !s.paused;
+export function advanceFrame(
+  s: Session, frameInput: InputFrame, frameDt: number, now: number, pointer: PointerStatus = NO_POINTER,
+): FrameOutput {
+  ({ paused: s.paused, guard: s.pauseGuard } = resolvePause({
+    paused: s.paused, pausePressed: frameInput.pausePressed, lockLost: pointer.lockLost,
+    guard: s.pauseGuard, dt: Math.min(frameDt, MAX_FRAME_DT), phase: s.curr.phase,
+  }));
   if (frameInput.debugPressed) s.debug = !s.debug;
 
   let fx: FxFrame = PAUSED_FX;
@@ -199,6 +208,9 @@ export function advanceFrame(s: Session, frameInput: InputFrame, frameDt: number
     lastPress,
     now,
     view: s.view,
+    mouseHint: showMouseHint({
+      hasSession: true, paused: s.paused, locked: pointer.locked, device: frameInput.device, phase: curr.phase,
+    }),
   };
   return { overlay, hud };
 }
