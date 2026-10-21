@@ -1,3 +1,4 @@
+import { initialView } from './camera/view';
 import { advanceFrame, NEUTRAL_FX, newSession, type MatchOptions, type Session } from './frame';
 import { createInput } from './input/input';
 import { STEP_DT } from './loop';
@@ -79,6 +80,7 @@ function start(canvas: HTMLCanvasElement, ui: HTMLElement): void {
 
   const emptyOverlay: Overlay = {
     humanId: null, assistZone: null, timingRing: null, events: [], debug: null, fx: NEUTRAL_FX,
+    view: initialView(0),
   };
   let lastNow = performance.now();
 

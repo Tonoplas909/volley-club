@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { GameEvent, GameState, PlayerRole, Vec2, Vec3 } from '../sim/types';
 import { createBall } from './ball';
 import { createCameraRig } from './camera';
+import type { CameraView } from '../camera/view';
 import type { FxFrame } from '../fx/fx';
 import { createDebug } from './debug';
 import { createMarkers } from './markers';
@@ -16,6 +17,8 @@ export type Overlay = {
   debug: { lastQuality: { placement: number; timing: number; quality: number } | null; roles: PlayerRole[] | null } | null;
   /** Facteur de temps de jeu (gel, ralenti) et décalage de vibration de la caméra. */
   fx: FxFrame;
+  /** Orientation de la caméra (3e personne). */
+  view: CameraView;
 };
 
 export interface Renderer {
