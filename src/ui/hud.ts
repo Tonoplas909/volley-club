@@ -1,3 +1,4 @@
+import type { CameraView } from '../camera/view';
 import type { GameState, Gesture } from '../sim/types';
 import { createDiveGauge } from './diveGauge';
 import { createGestureBanner } from './gestureBanner';
@@ -20,6 +21,10 @@ export interface HudView {
   lastPress: LastPressView | null;
   /** Secondes réelles. */
   now: number;
+  /** Orientation de la caméra : le cône de la mini-carte la suit. */
+  view: CameraView;
+  /** Afficher l'aide « Clique pour orienter la caméra à la souris » (souris non capturée). */
+  mouseHint: boolean;
 }
 
 export interface Hud {
@@ -28,7 +33,7 @@ export interface Hud {
   dispose(): void;
 }
 
-export type HudActions = { onReplay(): void; onMenu(): void };
+export type HudActions = { onReplay(): void; onMenu(): void; onResume(): void };
 
 const PLAYER_TEAM = 0;
 
@@ -83,12 +88,19 @@ export function createHud(root: HTMLElement, actions: HudActions): Hud {
 
   const pause = el('div', 'pause');
   pause.hidden = true;
-  pause.append(el('div', 'message-title', 'Pause'), el('div', 'message-sub', 'Échap pour reprendre'));
+  const resume = el('button', 'primary', 'Reprendre');
+  resume.type = 'button';
+  const pauseButtons = el('div', 'buttons');
+  pauseButtons.append(resume);
+  pause.append(el('div', 'message-title', 'Pause'), el('div', 'message-sub', 'Échap pour reprendre'), pauseButtons);
+
+  const mouseHint = el('div', 'mouse-hint', 'Clique pour orienter la caméra à la souris');
+  mouseHint.hidden = true;
 
   const debug = el('div', 'debug');
   debug.hidden = true;
 
-  container.append(board, message, pause, debug);
+  container.append(board, message, pause, debug, mouseHint);
   root.append(container);
   // Le bandeau et la jauge de recharge partagent un support : le bandeau y garde une largeur minimale,
   // pour que la jauge ne bouge pas quand il apparaît ou disparaît.
@@ -103,6 +115,7 @@ export function createHud(root: HTMLElement, actions: HudActions): Hud {
 
   replay.addEventListener('click', actions.onReplay);
   menu.addEventListener('click', actions.onMenu);
+  resume.addEventListener('click', actions.onResume);
 
   return {
     update(state, view, humanId): void {
@@ -141,6 +154,7 @@ export function createHud(root: HTMLElement, actions: HudActions): Hud {
       buttons.hidden = !showButtons;
 
       pause.hidden = !view.paused;
+      mouseHint.hidden = !view.mouseHint;
       debug.hidden = !view.debug;
       if (view.debug) {
         const touch = view.lastPress === null ? '—' : tierText(view.lastPress.tier);
@@ -149,7 +163,7 @@ export function createHud(root: HTMLElement, actions: HudActions): Hud {
       banner.update(view.paused ? null : view.expected, view.device, view.diveHint);
       gauge.update(humanId === null ? null : view.diveReadiness);
       card.update(view.lastPress, view.now);
-      minimap.update(state, humanId);
+      minimap.update(state, humanId, view.view);
     },
     hide(): void {
       container.hidden = true;
@@ -157,6 +171,7 @@ export function createHud(root: HTMLElement, actions: HudActions): Hud {
     dispose(): void {
       replay.removeEventListener('click', actions.onReplay);
       menu.removeEventListener('click', actions.onMenu);
+      resume.removeEventListener('click', actions.onResume);
       banner.dispose();
       gauge.dispose();
       dock.remove();

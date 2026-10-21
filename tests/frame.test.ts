@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
+import { initialView, NO_LOOK, screenToWorld, type LookInput } from '../src/camera/view';
 import { advanceFrame, newSession, type Session } from '../src/frame';
 import type { InputFrame } from '../src/input/input';
-import { STEP_DT } from '../src/loop';
+import { MAX_FRAME_DT, STEP_DT } from '../src/loop';
 import { launchTo, positionAt, secondsSince } from '../src/sim/ball';
 import { currentServerId } from '../src/sim/court';
 import { createInitialState, NEUTRAL_COMMAND, step } from '../src/sim/simulation';
-import { contactPoint, idealPressTick } from '../src/sim/touch';
+import { contactPoint, gestureFor, idealPressTick } from '../src/sim/touch';
 import { TUNING } from '../src/sim/tuning';
 import type { Command, GameEvent, GameState, MatchConfig, Vec2 } from '../src/sim/types';
 import { applyMagnetism } from '../src/ui/assist';
@@ -38,7 +39,7 @@ function humanServesSeed(): number {
 function input(command: Partial<Command> = {}, extra: Partial<InputFrame> = {}): InputFrame {
   return {
     command: { ...NEUTRAL_COMMAND, ...command },
-    pausePressed: false, debugPressed: false, device: 'keyboard', ...extra,
+    pausePressed: false, debugPressed: false, device: 'keyboard', look: NO_LOOK, ...extra,
   };
 }
 const press = (): InputFrame => input({ actionPressed: true });
@@ -86,7 +87,7 @@ describe('advanceFrame : gel et pause (point de vigilance 1)', () => {
     for (let i = 0; i < 10; i++) {
       now += 1;
       out = advanceFrame(s, input(), 1, now);
-      expect(out.overlay.fx).toEqual({ timeScale: 0, shake: { x: 0, y: 0 } });
+      expect(out.overlay.fx).toEqual({ timeScale: 0, shake: { x: 0, y: 0 }, flash: 0, shockwaves: [] });
       expect(out.hud.paused).toBe(true);
     }
     expect(s.curr.tick).toBe(tick0);
@@ -371,5 +372,216 @@ describe('advanceFrame : plongeon (carte du geste, jauge, invitation)', () => {
     now += STEP_DT * 1.5;
     const out = advanceFrame(s, press(), STEP_DT * 1.5, now);
     expect(out.hud.lastPress!.dive).toBe(false);
+  });
+});
+
+describe('advanceFrame : commandes relatives à la caméra', () => {
+  const R = TUNING.ball.radius;
+  const look = (extra: Partial<LookInput>): LookInput => ({ ...NO_LOOK, ...extra });
+  /** Commandes de l'humain reçues par step depuis l'appel `from`. */
+  const humanCommands = (from: number): Command[] =>
+    vi.mocked(step).mock.calls.slice(from).map(([, commands]) => commands[HUMAN]!);
+
+  /** Session au milieu d'un échange (attaque adverse qui descend), humain à 1 m du point de contact, côté −x. */
+  function rallySession(yaw: number): { s: Session; contact: Vec2 } {
+    const s = newSession(config(1), OPTIONS);
+    const traj = launchTo({ x: 1, y: 3, z: 1 }, { x: -2, y: R, z: -5 }, 1.2, 0);
+    const base: GameState = {
+      ...s.curr, tick: 10, phase: 'rally', phaseStartTick: 0,
+      ball: {
+        mode: 'flying', traj, pos: positionAt(traj, secondsSince(traj, 10)),
+        lastTouch: { playerId: 3, team: 1, gesture: 'attack', tick: 0 },
+      },
+      rally: { touchingTeam: 1, touches: 3, lastToucherId: 3 },
+      events: [],
+    };
+    const contact = contactPoint(base, HUMAN, 'reception')!;
+    const fixture: GameState = {
+      ...base,
+      players: base.players.map((p) => (p.id === HUMAN
+        ? { ...p, pos: { x: contact.x - 1, y: 0, z: contact.z }, vel: { x: 0, z: 0 } }
+        : p)),
+    };
+    s.curr = fixture;
+    s.prev = fixture;
+    s.view = { yaw, pitch: 0.2 };
+    return { s, contact };
+  }
+
+  it('newSession : la vue repart face au filet (initialView de l’équipe de l’humain)', () => {
+    expect(newSession(config(1), OPTIONS).view).toEqual(initialView(0));
+    const team1 = newSession({ ...config(1), humanPlayerId: 2 }, OPTIONS);
+    expect(team1.view).toEqual(initialView(1));
+    const noHuman = newSession({ ...config(1), humanPlayerId: null }, OPTIONS);
+    expect(noHuman.view).toEqual(initialView(0));
+  });
+
+  it('un nouveau match remet la vue face au filet, même si l’ancienne était tournée', () => {
+    const old = newSession(config(1), OPTIONS);
+    old.view = { yaw: 2, pitch: 0.5 };
+    expect(newSession(old.config, OPTIONS).view).toEqual(initialView(0));
+  });
+
+  it('yaw −π/2 et move (0, 1) : move et aim passés à step valent (−1, 0) (critère 2)', () => {
+    const s = newSession(config(1), OPTIONS);
+    s.view = { yaw: -Math.PI / 2, pitch: 0.2 };
+    const calls = vi.mocked(step).mock.calls.length;
+    advanceFrame(s, input({ move: { x: 0, z: 1 }, aim: { x: 0, z: 1 } }), STEP_DT * 1.5, 1);
+    const [cmd] = humanCommands(calls);
+    expect(cmd!.move.x).toBeCloseTo(-1, 12);
+    expect(cmd!.move.z).toBeCloseTo(0, 12);
+    expect(cmd!.aim.x).toBeCloseTo(-1, 12);
+    expect(cmd!.aim.z).toBeCloseTo(0, 12);
+  });
+
+  it('yaw 0 : la commande passée à step est identique à l’entrée (non-régression)', () => {
+    const s = newSession(config(1), { magnet: false, reducedMotion: false });
+    expect(s.view.yaw).toBe(0);
+    const raw = { move: { x: 0.3, z: -0.6 }, aim: { x: -0.5, z: 0.8 } };
+    const calls = vi.mocked(step).mock.calls.length;
+    advanceFrame(s, input(raw), STEP_DT * 1.5, 1);
+    const [cmd] = humanCommands(calls);
+    expect(cmd).toEqual({ ...NEUTRAL_COMMAND, ...raw });
+  });
+
+  it('l’aimantation s’applique après la conversion : move = 0, attraction vers le ballon dans le repère du terrain', () => {
+    const { s } = rallySession(-Math.PI / 2);
+    const calls = vi.mocked(step).mock.calls.length;
+    advanceFrame(s, input({}), STEP_DT * 1.5, 1);
+    const [cmd] = humanCommands(calls);
+    // Le point de contact est à +x de l'humain : l'attraction pointe vers +x du terrain, quelle que soit la vue.
+    expect(cmd!.move.x).toBeGreaterThan(0.1);
+    expect(Math.abs(cmd!.move.z)).toBeLessThan(0.05);
+  });
+
+  it('l’aimantation reçoit la commande déjà convertie (move non nul)', () => {
+    const yaw = -Math.PI / 2;
+    const { s } = rallySession(yaw);
+    const fixture = s.curr;
+    const screenMove: Vec2 = { x: 0, z: 0.3 }; // « avant » à l'écran = −x du terrain : s'éloigne du ballon
+    const rightWorld = { x: 0.3, z: 0 }; // ce que donnerait une conversion absente ou en sens inverse
+    expect(applyMagnetism(fixture, HUMAN, { ...NEUTRAL_COMMAND, move: rightWorld }).move).not.toEqual(rightWorld);
+    const converted = { ...NEUTRAL_COMMAND, move: screenToWorld(screenMove, yaw) };
+    const calls = vi.mocked(step).mock.calls.length;
+    advanceFrame(s, input({ move: screenMove }), STEP_DT * 1.5, 1);
+    const [cmd] = humanCommands(calls);
+    const expected = applyMagnetism(fixture, HUMAN, converted);
+    expect(cmd!.move.x).toBeCloseTo(expected.move.x, 12);
+    expect(cmd!.move.z).toBeCloseTo(expected.move.z, 12);
+  });
+
+  it('pause : look est ignoré, avant comme après la reprise', () => {
+    const s = newSession(config(1), OPTIONS);
+    const before = { ...s.view };
+    advanceFrame(s, input({}, { pausePressed: true, look: look({ mouseDx: 500 }) }), 0.016, 1);
+    expect(s.paused).toBe(true);
+    expect(s.view).toEqual(before);
+    advanceFrame(s, input({}, { look: look({ mouseDx: 500, keys: 1 }) }), 0.016, 1.016);
+    expect(s.view).toEqual(before);
+    advanceFrame(s, input({}, { pausePressed: true }), 0.016, 1.032);
+    expect(s.paused).toBe(false);
+    expect(s.view).toEqual(before);
+  });
+
+  it('gel : look fait tourner la vue en temps réel, sans step', () => {
+    const { s, now: t0 } = atHumanServe();
+    s.fx.onEvents([attackTouch], s.curr); // gel de 140 ms
+    const tick0 = s.curr.tick;
+    const yaw0 = s.view.yaw;
+    const out = advanceFrame(s, input({}, { look: look({ keys: 1 }) }), 0.05, t0 + 0.05);
+    expect(out.overlay.fx.timeScale).toBe(0);
+    expect(s.curr.tick).toBe(tick0);
+    expect(s.view.yaw).toBeCloseTo(yaw0 - TUNING.camera.keySpeed * 0.05, 12);
+    expect(out.overlay.view).toBe(s.view);
+  });
+
+  it('un dt de frame énorme (onglet figé) ne fait pas tourner la vue plus que MAX_FRAME_DT', () => {
+    const s = newSession(config(1), OPTIONS);
+    advanceFrame(s, input({}, { look: look({ keys: 1 }) }), 30, 30);
+    expect(s.view.yaw).toBeCloseTo(-TUNING.camera.keySpeed * MAX_FRAME_DT, 12);
+  });
+
+  it('vigilance 3 : yaw π/4 et « avant » (0, 1) → visée ≈ (0,707, 0,707), donc 2e touche = passe et non attaque', () => {
+    // Équipe 0, 2e touche : balle haute près du filet, humain sous le point de contact.
+    const s = newSession(config(1), { magnet: false, reducedMotion: false });
+    const traj = launchTo({ x: 0, y: 3.2, z: -2.5 }, { x: 0, y: R, z: -1 }, 1.4, 0);
+    const tick = 20;
+    const base: GameState = {
+      ...s.curr, tick, phase: 'rally', phaseStartTick: 0,
+      ball: {
+        mode: 'flying', traj, pos: positionAt(traj, secondsSince(traj, tick)),
+        lastTouch: { playerId: 1, team: 0, gesture: 'reception', tick: 5 },
+      },
+      rally: { touchingTeam: 0, touches: 1, lastToucherId: 1 },
+      events: [],
+    };
+    const hit = contactPoint(base, HUMAN, 'attack');
+    expect(hit).not.toBeNull();
+    const placed: GameState = {
+      ...base,
+      players: base.players.map((p) => (p.id === HUMAN
+        ? { ...p, pos: { x: hit!.x, y: 0, z: hit!.z }, vel: { x: 0, z: 0 } }
+        : p)),
+    };
+    // Sanity : visée franchement vers le filet dans le repère du terrain = attaque possible.
+    expect(gestureFor(placed, HUMAN, { ...NEUTRAL_COMMAND, aim: { x: 0, z: 1 } })).toBe('attack');
+
+    s.curr = placed;
+    s.prev = placed;
+    s.view = { yaw: Math.PI / 4, pitch: 0.2 };
+    const calls = vi.mocked(step).mock.calls.length;
+    advanceFrame(s, input({ move: { x: 0, z: 1 }, aim: { x: 0, z: 1 } }, {}), STEP_DT * 1.5, 1);
+    const [cmd] = humanCommands(calls);
+    expect(cmd!.aim.x).toBeCloseTo(Math.SQRT1_2, 12);
+    expect(cmd!.aim.z).toBeCloseTo(Math.SQRT1_2, 12);
+    expect(cmd!.aim).toEqual(screenToWorld({ x: 0, z: 1 }, Math.PI / 4));
+    expect(gestureFor(placed, HUMAN, cmd!)).toBe('set');
+  });
+});
+
+describe('souris capturée : pause et aide', () => {
+  const free = { locked: false, lockLost: false };
+
+  it('capture perdue : pause, et l’Échap livré en plus (même frame ou suivante) ne dépause pas', () => {
+    const s = newSession(config(1), OPTIONS);
+    advanceFrame(s, input({}, { pausePressed: true }), 0.016, 1, { locked: false, lockLost: true });
+    expect(s.paused).toBe(true);
+    advanceFrame(s, input({}, { pausePressed: true }), 0.016, 1.016, free);
+    expect(s.paused).toBe(true);
+    // Une fois la garde épuisée (temps réel), Échap reprend.
+    advanceFrame(s, input(), 0.3, 1.4, free);
+    advanceFrame(s, input({}, { pausePressed: true }), 0.016, 1.416, free);
+    expect(s.paused).toBe(false);
+  });
+
+  it('capture perdue en pause : reste en pause (idempotent)', () => {
+    const s = newSession(config(1), OPTIONS);
+    s.paused = true;
+    advanceFrame(s, input(), 0.016, 1, { locked: false, lockLost: true });
+    expect(s.paused).toBe(true);
+  });
+
+  it('capture perdue à matchEnd : pas de pause', () => {
+    const s = newSession(config(1), OPTIONS);
+    s.curr = { ...s.curr, phase: 'matchEnd' };
+    advanceFrame(s, input(), 0.016, 1, { locked: false, lockLost: true });
+    expect(s.paused).toBe(false);
+  });
+
+  it('mouseHint : vrai souris libre au clavier, faux capturée, en pause ou à la manette', () => {
+    const s = newSession(config(1), OPTIONS);
+    expect(advanceFrame(s, input(), 0.016, 1, free).hud.mouseHint).toBe(true);
+    expect(advanceFrame(s, input(), 0.016, 1.016).hud.mouseHint).toBe(true); // pointeur par défaut : non capturé
+    expect(advanceFrame(s, input(), 0.016, 1.032, { locked: true, lockLost: false }).hud.mouseHint).toBe(false);
+    expect(advanceFrame(s, input({}, { device: 'gamepad' }), 0.016, 1.048, free).hud.mouseHint).toBe(false);
+    s.paused = true;
+    expect(advanceFrame(s, input(), 0.016, 1.064, free).hud.mouseHint).toBe(false);
+  });
+
+  it('mouseHint : masquée tant qu’une demande de capture est en attente, affichée ensuite', () => {
+    const s = newSession(config(1), OPTIONS);
+    const pending = { locked: false, lockLost: false, requestPending: true };
+    expect(advanceFrame(s, input(), 0.016, 1, pending).hud.mouseHint).toBe(false);
+    expect(advanceFrame(s, input(), 0.016, 1.016, { ...pending, requestPending: false }).hud.mouseHint).toBe(true);
   });
 });

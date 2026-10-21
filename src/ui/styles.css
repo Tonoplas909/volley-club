@@ -117,6 +117,15 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px s
   .controls dt { margin-top: 0; }
 }
 
+/* Flash d'une attaque parfaite : sous les panneaux (créé avant eux), ne capte aucun clic */
+.impact-flash {
+  position: absolute;
+  inset: 0;
+  background: #fff4d6;
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* HUD */
 .hud { position: absolute; inset: 0; }
 
@@ -181,6 +190,23 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px s
 }
 .message-sub { margin-top: 6px; font-size: 18px; color: var(--muted); }
 .buttons { margin-top: 16px; display: flex; gap: 14px; justify-content: center; }
+
+/* Aide discrète tant que la souris n'est pas capturée : au-dessus du bandeau, sans capter les clics (ils vont au canvas) */
+.mouse-hint {
+  position: absolute;
+  bottom: 92px;
+  left: 50%;
+  transform: translateX(-50%);
+  box-sizing: border-box;
+  max-width: calc(100vw - 32px);
+  padding: 4px 14px;
+  font-size: 14px;
+  white-space: nowrap;
+  color: var(--muted);
+  background: var(--panel-bg);
+  border-radius: 999px;
+  pointer-events: none;
+}
 
 .debug {
   position: absolute;
@@ -340,6 +366,7 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px s
   .gesture-banner { font-size: 17px; padding: 6px 12px; }
   .dive-gauge { grid-column: 2; margin-left: 0; width: 46px; height: 46px; padding: 4px; }
   .dive-icon { width: 22px; height: 22px; }
+  .mouse-hint { bottom: 196px; font-size: 12px; white-space: normal; text-align: center; }
 }
 
 .unsupported {

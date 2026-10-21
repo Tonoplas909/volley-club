@@ -1,37 +1,17 @@
 import * as THREE from 'three';
-import type { GameState } from '../sim/types';
+import { cameraPosition, type CameraView } from '../camera/view';
+import { TUNING } from '../sim/tuning';
+import type { GameState, Vec3 } from '../sim/types';
 
 const FOV = 55;
 const NEAR = 0.5;
 const FAR = 120;
-const CAM_BALL_FACTOR = 0.3;
-const CAM_HEIGHT = 7;
-const CAM_Z = -15;
-const LOOK_BALL_FACTOR = 0.2;
-const LOOK_Y = 1;
-const LOOK_Z = 2;
-/** Vitesse de lissage exponentiel (1/s). */
-const SMOOTHING = 4;
-/** Hauteur minimale de la caméra (m) : la vibration ne la fait jamais passer sous le sol (spec § 5.3). */
-const MIN_CAM_HEIGHT = 1;
-
-/**
- * Caméra levée pendant une attaque de l'humain : plus haute, un peu plus près et visant plus loin,
- * pour voir le camp adverse par-dessus le filet au lieu de buter sur la bande.
- */
-const ATTACK_CAM_HEIGHT = 11;
-const ATTACK_CAM_Z = -12;
-const ATTACK_LOOK_Y = 0.5;
-const ATTACK_LOOK_Z = 4;
-/** Durées (s) de la montée et de la descente : la caméra monte vite et redescend en douceur. */
-const LIFT_UP_DURATION = 0.35;
-const LIFT_DOWN_DURATION = 0.8;
-/** Durée (ticks) pendant laquelle la caméra reste levée après la frappe, pour suivre le ballon. */
-const ATTACK_HOLD_TICKS = 45;
+/** Cible de départ quand il n'y a pas (encore) de joueur humain : derrière l'équipe 0, regard vers le filet. */
+const DEFAULT_TARGET_Z = -6;
 
 /**
  * Vrai pendant une attaque de l'humain : du moment où il presse (saut d'attaque en cours)
- * jusqu'à ATTACK_HOLD_TICKS après la frappe.
+ * jusqu'à `camera.attackHoldTicks` après la frappe.
  */
 export function isHumanAttacking(state: GameState, humanId: number | null): boolean {
   if (humanId === null) return false;
@@ -39,73 +19,56 @@ export function isHumanAttacking(state: GameState, humanId: number | null): bool
   if (human?.pending?.gesture === 'attack') return true;
   const touch = state.ball.lastTouch;
   return touch !== null && touch.playerId === humanId && touch.gesture === 'attack'
-    && state.tick - touch.tick < ATTACK_HOLD_TICKS;
+    && state.tick - touch.tick < TUNING.camera.attackHoldTicks;
 }
 
 export interface CameraRig {
   camera: THREE.PerspectiveCamera;
   /**
-   * `dt` est le temps réel (le lissage ne se fige pas pendant un gel). `shake` est un décalage
-   * en x et y ajouté à la position après lissage ; le point visé n'est pas touché.
-   * `attacking` lève progressivement la caméra (voir `isHumanAttacking`).
+   * 3e personne en orbite autour de `target` (spec § 6). `dt` est le temps réel : le suivi ne se
+   * fige pas pendant un gel. Le point visé est lissé (`camera.followSmoothing`), l'orientation
+   * non. `shake` est ajouté à la position après coup, sans toucher au point visé. `target` nul
+   * (pas d'humain) garde la dernière cible, ou une cible fixe à la première frame.
+   * `attacking` fait monter l'orbite et le point visé, le temps de voir par-dessus le filet
+   * (voir `isHumanAttacking`) ; la vue du joueur n'est pas modifiée.
    */
-  update(ballX: number, attacking: boolean, dt: number, shake: { x: number; y: number }): void;
+  update(target: Vec3 | null, view: CameraView, attacking: boolean, dt: number, shake: { x: number; y: number }): void;
   resize(aspect: number): void;
 }
 
-/** Caméra derrière l'équipe 0, qui suit doucement le ballon latéralement. */
 export function createCameraRig(aspect: number): CameraRig {
   const camera = new THREE.PerspectiveCamera(FOV, aspect, NEAR, FAR);
-  const position = new THREE.Vector3(0, CAM_HEIGHT, CAM_Z);
-  const look = new THREE.Vector3(0, LOOK_Y, LOOK_Z);
-  const targetPos = new THREE.Vector3();
-  const targetLook = new THREE.Vector3();
-  let first = true;
-  /** 0 = caméra normale, 1 = caméra d'attaque. */
+  const C = TUNING.camera;
+  const smoothed = new THREE.Vector3(0, C.targetHeight, DEFAULT_TARGET_Z);
+  const look = new THREE.Vector3();
+  let hasTarget = false;
+  /** 0 = orbite normale, 1 = orbite d'attaque. */
   let lift = 0;
-
-  const apply = (): void => {
-    camera.position.copy(position);
-    camera.lookAt(look);
-  };
-  apply();
 
   return {
     camera,
-    update(ballX, attacking, dt, shake) {
-      lift = attacking
-        ? Math.min(1, lift + dt / LIFT_UP_DURATION)
-        : Math.max(0, lift - dt / LIFT_DOWN_DURATION);
+    update(target, view, attacking, dt, shake) {
+      if (target !== null) {
+        if (!hasTarget) {
+          smoothed.set(target.x, target.y, target.z);
+          hasTarget = true;
+        } else {
+          const k = 1 - Math.exp(-C.followSmoothing * Math.max(0, dt));
+          smoothed.x += (target.x - smoothed.x) * k;
+          smoothed.y += (target.y - smoothed.y) * k;
+          smoothed.z += (target.z - smoothed.z) * k;
+        }
+      }
+      const step = Math.max(0, dt);
+      lift = attacking ? Math.min(1, lift + step / C.attackRiseTime) : Math.max(0, lift - step / C.attackFallTime);
       // Courbe en S : le départ et l'arrivée de la montée restent doux.
       const e = lift * lift * (3 - 2 * lift);
-      targetPos.set(
-        ballX * CAM_BALL_FACTOR,
-        CAM_HEIGHT + (ATTACK_CAM_HEIGHT - CAM_HEIGHT) * e,
-        CAM_Z + (ATTACK_CAM_Z - CAM_Z) * e,
-      );
-      targetLook.set(
-        ballX * LOOK_BALL_FACTOR,
-        LOOK_Y + (ATTACK_LOOK_Y - LOOK_Y) * e,
-        LOOK_Z + (ATTACK_LOOK_Z - LOOK_Z) * e,
-      );
-      if (first) {
-        position.copy(targetPos);
-        look.copy(targetLook);
-        first = false;
-      } else {
-        const k = 1 - Math.exp(-SMOOTHING * dt);
-        position.x += (targetPos.x - position.x) * k;
-        look.x += (targetLook.x - look.x) * k;
-        // La montée est déjà lissée par `lift` : on ne la lisse pas une seconde fois.
-        position.y = targetPos.y;
-        position.z = targetPos.z;
-        look.y = targetLook.y;
-        look.z = targetLook.z;
-      }
-      // Le décalage s'ajoute après le lissage : la position lissée reste celle sans vibration.
-      // La caméra est à y = 7 et la vibration vaut au plus quelques dizaines de cm ; le plancher
-      // protège quand même d'un réglage extrême.
-      camera.position.set(position.x + shake.x, Math.max(MIN_CAM_HEIGHT, position.y + shake.y), position.z);
+      // L'orbite ne monte que si le joueur regarde plus bas que `attackPitch` ; elle ne baisse jamais.
+      const pitch = view.pitch + (Math.max(view.pitch, C.attackPitch) - view.pitch) * e;
+      look.set(smoothed.x, smoothed.y + C.attackTargetLift * e, smoothed.z);
+      const p = cameraPosition(look, { yaw: view.yaw, pitch });
+      // La vibration s'ajoute après le calcul de la position ; le plancher la rattrape près du sol.
+      camera.position.set(p.x + shake.x, Math.max(C.minHeight, p.y + shake.y), p.z);
       camera.lookAt(look);
     },
     resize(newAspect) {

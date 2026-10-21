@@ -1,10 +1,11 @@
 import { landingPoint } from '../sim/ball';
 import { TUNING } from '../sim/tuning';
 import type { GameState } from '../sim/types';
-import { courtToMinimap, type MinimapSize } from './minimapMath';
+import type { CameraView } from '../camera/view';
+import { courtToMinimap, minimapCone, type MinimapSize } from './minimapMath';
 
 export interface Minimap {
-  update(state: GameState, humanId: number | null): void;
+  update(state: GameState, humanId: number | null, view: CameraView): void;
   dispose(): void;
 }
 
@@ -59,7 +60,7 @@ export function createMinimap(root: HTMLElement): Minimap {
   }
 
   return {
-    update(state, humanId): void {
+    update(state, humanId, view): void {
       if (!ctx) return;
       const c = palette();
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -80,6 +81,19 @@ export function createMinimap(root: HTMLElement): Minimap {
       ctx.moveTo(n0.x, n0.y);
       ctx.lineTo(n1.x, n1.y);
       ctx.stroke();
+
+      // Cône de vue de la caméra, sous la croix d'atterrissage et les pastilles.
+      const human = humanId === null ? undefined : state.players.find((pl) => pl.id === humanId);
+      if (human) {
+        const cone = minimapCone(human.pos, view.yaw, SIZE);
+        ctx.beginPath();
+        ctx.moveTo(cone.apex.x, cone.apex.y);
+        ctx.lineTo(cone.left.x, cone.left.y);
+        ctx.lineTo(cone.right.x, cone.right.y);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+        ctx.fill();
+      }
 
       const { ball } = state;
       if (ball.mode === 'flying') {

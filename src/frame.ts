@@ -3,9 +3,11 @@
  * pause, debug, impact (gel, ralenti, vibration), aimantation, verrou d'appui, steps de simulation,
  * explication du dernier appui de l'humain. `main.ts` ne fait que l'afficher.
  */
+import { initialView, screenToWorld, updateView, type CameraView } from './camera/view';
 import { createFx, type Fx, type FxFrame } from './fx/fx';
 import type { InputFrame } from './input/input';
-import { consumeAccumulator, isDiscontinuity } from './loop';
+import { consumeAccumulator, isDiscontinuity, MAX_FRAME_DT } from './loop';
+import { NO_POINTER, resolvePause, showMouseHint, type PointerStatus } from './pointerLock';
 import type { Overlay } from './render/renderer';
 import { assignRoles, targetPosition } from './sim/ai/decisions';
 import { createBrain, type Brain } from './sim/ai/brain';
@@ -22,9 +24,9 @@ import type { LastPressView } from './ui/pressCard';
 /** Facteur de ralenti du mode debug (spec V1 § 3.3), multiplié par celui de l'impact. */
 export const DEBUG_TIME_SCALE = 0.25;
 /** Temps figé et caméra immobile (pause). */
-export const PAUSED_FX: FxFrame = { timeScale: 0, shake: { x: 0, y: 0 } };
+export const PAUSED_FX: FxFrame = { timeScale: 0, shake: { x: 0, y: 0 }, flash: 0, shockwaves: [] };
 /** Temps normal et caméra immobile (fond du menu). */
-export const NEUTRAL_FX: FxFrame = { timeScale: 1, shake: { x: 0, y: 0 } };
+export const NEUTRAL_FX: FxFrame = { timeScale: 1, shake: { x: 0, y: 0 }, flash: 0, shockwaves: [] };
 
 /** Options de l'interface pour un match (hors MatchConfig). */
 export type MatchOptions = { magnet: boolean; reducedMotion: boolean };
@@ -38,7 +40,11 @@ export type Session = {
   curr: GameState;
   acc: number;
   paused: boolean;
+  /** Garde (secondes réelles) qui ignore l'appui Pause suivant une perte de capture de la souris (même Échap). */
+  pauseGuard: number;
   debug: boolean;
+  /** Orientation de la caméra (présentation) : tourne en temps réel, jamais en pause, sans effet sur la simulation. */
+  view: CameraView;
   /** Appui Action reçu mais pas encore joué (gel ou ralenti : une frame peut n'avoir aucun step). */
   actionLatch: boolean;
   /** Idem pour l'appui Plongeon. */
@@ -64,20 +70,26 @@ export function newSession(config: MatchConfig, options: MatchOptions): Session 
     const level = p.team === 0 ? config.difficulty.teammate : config.difficulty.opponents;
     return createBrain(p.id, level, config.seed + p.id);
   });
+  const human = state.players.find((p) => p.id === config.humanPlayerId);
   return {
-    config, options, brains, fx: createFx({ reducedMotion: options.reducedMotion }),
-    prev: state, curr: state, acc: 0, paused: false, debug: false, actionLatch: false, diveLatch: false, events: [],
+    config, options, brains, fx: createFx({ reducedMotion: options.reducedMotion, humanId: config.humanPlayerId }),
+    prev: state, curr: state, acc: 0, paused: false, pauseGuard: 0, debug: false, view: initialView(human?.team ?? 0), actionLatch: false, diveLatch: false, events: [],
     pendingExplanation: null, lastPress: null, lastQuality: 0,
   };
 }
 
-/** Joue un step : aimantation, verrou d'appui, explication de l'appui, impact et dernier appui. */
+/** Commande de l'humain en repère terrain : `move` et `aim` (repère écran) tournés selon `yaw`. */
+function worldCommand(cmd: Command, yaw: number): Command {
+  return { ...cmd, move: screenToWorld(cmd.move, yaw), aim: screenToWorld(cmd.aim, yaw) };
+}
+
+/** Joue un step : conversion écran → terrain, aimantation, verrou d'appui, explication de l'appui, impact et dernier appui. */
 function playStep(s: Session, frameInput: InputFrame, now: number): void {
   const humanId = s.config.humanPlayerId;
   const before = s.curr;
-  const moved = humanId !== null && s.options.magnet
-    ? applyMagnetism(before, humanId, frameInput.command)
-    : frameInput.command;
+  // La caméra du moment où le step est joué, pas celle de l'appui (spec § 8 point 4).
+  const aimed = worldCommand(frameInput.command, s.view.yaw);
+  const moved = humanId !== null && s.options.magnet ? applyMagnetism(before, humanId, aimed) : aimed;
   // L'appui Action n'est joué qu'au premier step effectif (front montant, pas un maintien).
   const human: Command = { ...moved, actionPressed: s.actionLatch, divePressed: s.diveLatch };
   s.actionLatch = false;
@@ -121,12 +133,18 @@ function playStep(s: Session, frameInput: InputFrame, now: number): void {
 }
 
 /**
- * Avance une session d'une frame réelle de `frameDt` secondes ; `now` en secondes réelles.
+ * Avance une session d'une frame réelle de `frameDt` secondes ; `now` en secondes réelles ; `pointer` dit si la
+ * souris est capturée et si la capture vient d'être perdue (perte = pause).
  * Pendant la pause, ni l'impact ni la simulation n'avancent : un gel ou un ralenti reprend là où il
  * en était. Renvoie ce qu'il faut afficher (rendu et ATH).
  */
-export function advanceFrame(s: Session, frameInput: InputFrame, frameDt: number, now: number): FrameOutput {
-  if (frameInput.pausePressed && s.curr.phase !== 'matchEnd') s.paused = !s.paused;
+export function advanceFrame(
+  s: Session, frameInput: InputFrame, frameDt: number, now: number, pointer: PointerStatus = NO_POINTER,
+): FrameOutput {
+  ({ paused: s.paused, guard: s.pauseGuard } = resolvePause({
+    paused: s.paused, pausePressed: frameInput.pausePressed, lockLost: pointer.lockLost,
+    guard: s.pauseGuard, dt: Math.min(frameDt, MAX_FRAME_DT), phase: s.curr.phase,
+  }));
   if (frameInput.debugPressed) s.debug = !s.debug;
 
   let fx: FxFrame = PAUSED_FX;
@@ -134,6 +152,8 @@ export function advanceFrame(s: Session, frameInput: InputFrame, frameDt: number
     s.actionLatch = false;
     s.diveLatch = false;
   } else {
+    // Temps réel, y compris pendant un gel ou un ralenti ; plafonné comme l'accumulateur (onglet figé).
+    s.view = updateView(s.view, frameInput.look, Math.min(frameDt, MAX_FRAME_DT));
     if (frameInput.command.actionPressed) s.actionLatch = true;
     if (frameInput.command.divePressed) s.diveLatch = true;
     fx = s.fx.advance(frameDt);
@@ -147,14 +167,16 @@ export function advanceFrame(s: Session, frameInput: InputFrame, frameDt: number
 
   const { curr, lastPress } = s;
   const humanId = s.config.humanPlayerId;
-  const expected = expectedGesture(curr, humanId, frameInput.command);
+  // Le geste attendu, l'anneau et l'invitation au plongeon se calculent sur la commande en repère terrain.
+  const command = worldCommand(frameInput.command, s.view.yaw);
+  const expected = expectedGesture(curr, humanId, command);
   const overlay: Overlay = {
     humanId,
     assistZone:
       humanId !== null && s.config.assistZone && (curr.phase === 'rally' || curr.phase === 'serve')
         ? targetPosition(curr, humanId)
         : null,
-    timingRing: timingRing(curr, humanId, frameInput.command),
+    timingRing: timingRing(curr, humanId, command),
     events: s.events,
     debug: s.debug
       ? {
@@ -169,6 +191,7 @@ export function advanceFrame(s: Session, frameInput: InputFrame, frameDt: number
       }
       : null,
     fx,
+    view: s.view,
   };
   s.events = [];
 
@@ -180,10 +203,15 @@ export function advanceFrame(s: Session, frameInput: InputFrame, frameDt: number
       servePhase: expected.gesture === 'serve' ? (curr.ball.mode === 'held' ? 'toss' : 'strike') : null,
     },
     device: frameInput.device,
-    diveHint: !s.paused && diveHint(curr, humanId, frameInput.command),
+    diveHint: !s.paused && diveHint(curr, humanId, command),
     diveReadiness: humanId === null ? 1 : diveReadiness(curr, humanId),
     lastPress,
     now,
+    view: s.view,
+    mouseHint: showMouseHint({
+      hasSession: true, paused: s.paused, locked: pointer.locked, requestPending: pointer.requestPending ?? false, device: frameInput.device,
+      phase: curr.phase,
+    }),
   };
   return { overlay, hud };
 }

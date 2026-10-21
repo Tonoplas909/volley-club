@@ -6,7 +6,7 @@ import type { DiveState, GameEvent, GameState, Gesture, PendingGesture, PlayerSt
 import { disposeObject } from './scene';
 import { addOutline, toonMaterial } from './toon';
 
-const TEAM_COLORS = [0x1f6bff, 0xff7a10] as const;
+export const TEAM_COLORS = [0x1f6bff, 0xff7a10] as const;
 const TEAM_HEAD_COLORS = [0x7fb0ff, 0xffb46b] as const;
 
 const BODY_RADIUS = 0.26;

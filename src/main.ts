@@ -1,17 +1,20 @@
+import { initialView } from './camera/view';
 import { advanceFrame, NEUTRAL_FX, newSession, type MatchOptions, type Session } from './frame';
 import { createInput } from './input/input';
 import { STEP_DT } from './loop';
+import { canvasClickAction, lockRequestPending, pausesOnLockEvent, type LockEvent } from './pointerLock';
 import { createRenderer, isWebGLAvailable, type Overlay, type Renderer } from './render/renderer';
 import { createInitialState } from './sim/simulation';
 import type { MatchConfig } from './sim/types';
 import { createHud } from './ui/hud';
+import { createImpactFlash } from './ui/impactFlash';
 import { createMenu } from './ui/menu';
 import './ui/styles.css';
 
 /** Touches dont l'action par défaut du navigateur (défilement, aide) est supprimée pendant le match. */
 const GAME_KEYS: ReadonlySet<string> = new Set([
   'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'F1',
-  'ShiftLeft', 'ShiftRight',
+  'ShiftLeft', 'ShiftRight', 'KeyQ', 'KeyE',
 ]);
 
 const DEFAULT_CONFIG: MatchConfig = {
@@ -33,19 +36,59 @@ function showUnsupported(canvas: HTMLCanvasElement, ui: HTMLElement): void {
 
 function start(canvas: HTMLCanvasElement, ui: HTMLElement): void {
   const renderer: Renderer = createRenderer(canvas);
-  const input = createInput(window);
+  const isLocked = (): boolean => document.pointerLockElement === canvas;
+  const input = createInput(window, { mouseLocked: isLocked });
   const backdrop = createInitialState(DEFAULT_CONFIG);
   let session: Session | null = null;
 
+  // Souris capturée (spec § 5). La capture exige un geste de l'utilisateur et peut être refusée ou
+  // absente (navigateur, iframe, test sans écran) : aucun échec ne doit sortir d'ici.
+  let lockRequestedAt = -Infinity;
+  /** Capture perdue depuis la dernière frame : la prochaine frame passe en pause. */
+  let lockLost = false;
+  function requestLock(): void {
+    if (isLocked()) return;
+    try {
+      lockRequestedAt = performance.now();
+      // Selon le navigateur : rien, une exception, ou une promesse qui peut être rejetée.
+      Promise.resolve(canvas.requestPointerLock?.()).catch(() => undefined);
+    } catch {
+      // Capture indisponible : le jeu continue sans, l'aide s'affiche.
+    }
+  }
+  function releaseLock(): void {
+    try {
+      document.exitPointerLock?.();
+    } catch {
+      // Rien à libérer.
+    }
+  }
+  function lockEvent(kind: LockEvent['kind']): void {
+    const lost = pausesOnLockEvent({
+      kind,
+      locked: isLocked(),
+      hasSession: session !== null,
+      phase: session?.curr.phase ?? null,
+      requestPending: lockRequestPending(performance.now(), lockRequestedAt),
+    });
+    if (lost) lockLost = true;
+  }
+  document.addEventListener('pointerlockchange', () => lockEvent('change'));
+  document.addEventListener('pointerlockerror', () => lockEvent('error'));
+
+  // Avant le HUD et le menu : le calque du flash reste sous leurs panneaux.
+  const flash = createImpactFlash(ui);
   const hud = createHud(ui, {
     onReplay: () => {
       if (session) startMatch({ ...session.config, seed: Date.now() >>> 0 }, session.options.magnet);
     },
     onMenu: () => {
       session = null;
+      releaseLock();
       hud.hide();
       menu.show();
     },
+    onResume: () => resume(),
   });
   const menu = createMenu(ui, (config, options) => startMatch(config, options.magnet));
 
@@ -58,7 +101,24 @@ function start(canvas: HTMLCanvasElement, ui: HTMLElement): void {
     session = newSession(config, options);
     menu.hide();
     input.poll(); // purge les fronts reçus dans le menu (ex. Espace sur « Jouer »)
+    lockLost = false;
+    requestLock(); // dans le clic de « Jouer » / « Rejouer » : c'est le geste que le navigateur exige
   }
+
+  /** « Reprendre » ou clic sur le canvas en pause : enlève la pause et redemande la capture (un refus n'arrête pas le jeu). */
+  function resume(): void {
+    if (!session || session.curr.phase === 'matchEnd') return;
+    session.paused = false;
+    requestLock();
+  }
+  canvas.addEventListener('click', () => {
+    const action = canvasClickAction({
+      hasSession: session !== null, paused: session?.paused ?? false, locked: isLocked(),
+      phase: session?.curr.phase ?? null,
+    });
+    if (action === 'resume') resume();
+    else if (action === 'capture') requestLock();
+  });
 
   function resize(): void {
     renderer.resize(canvas.clientWidth, canvas.clientHeight);
@@ -79,6 +139,7 @@ function start(canvas: HTMLCanvasElement, ui: HTMLElement): void {
 
   const emptyOverlay: Overlay = {
     humanId: null, assistZone: null, timingRing: null, events: [], debug: null, fx: NEUTRAL_FX,
+    view: initialView(0),
   };
   let lastNow = performance.now();
 
@@ -90,12 +151,20 @@ function start(canvas: HTMLCanvasElement, ui: HTMLElement): void {
     const frameInput = input.poll();
     const s = session;
     if (!s) {
+      flash.update(0);
       renderer.render(backdrop, backdrop, 0, emptyOverlay);
       return;
     }
 
-    const { overlay, hud: view } = advanceFrame(s, frameInput, frameDt, now / 1000);
+    const wasPaused = s.paused;
+    const pointer = { locked: isLocked(), lockLost, requestPending: lockRequestPending(now, lockRequestedAt) };
+    lockLost = false;
+    const { overlay, hud: view } = advanceFrame(s, frameInput, frameDt, now / 1000, pointer);
+    if (wasPaused && !s.paused) requestLock(); // Échap en pause : tente une recapture (peut être refusée)
+    // Le curseur doit être libre pour cliquer « Reprendre » (pause) ou « Rejouer » / « Menu » (fin de match).
+    if ((s.paused || s.curr.phase === 'matchEnd') && pointer.locked) releaseLock();
     renderer.render(s.prev, s.curr, s.acc / STEP_DT, overlay);
+    flash.update(overlay.fx.flash);
     hud.update(s.curr, view, s.config.humanPlayerId);
   }
   requestAnimationFrame(frame);
