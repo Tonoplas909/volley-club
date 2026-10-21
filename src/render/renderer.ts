@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { GameEvent, GameState, PlayerRole, Vec2, Vec3 } from '../sim/types';
 import { createBall } from './ball';
-import { createCameraRig } from './camera';
+import { createCameraRig, isHumanAttacking } from './camera';
 import type { FxFrame } from '../fx/fx';
 import { createDebug } from './debug';
 import { createMarkers } from './markers';
@@ -81,7 +81,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
         players.positionOf,
       );
       debug.update(curr, overlay.debug, players.positionOf);
-      rig.update(ballPos.x, dt, overlay.fx.shake);
+      rig.update(ballPos.x, isHumanAttacking(curr, overlay.humanId), dt, overlay.fx.shake);
       gl.render(scene, rig.camera);
     },
     resize(width, height) {
