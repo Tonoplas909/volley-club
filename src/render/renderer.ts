@@ -8,6 +8,7 @@ import { createDebug } from './debug';
 import { createMarkers } from './markers';
 import { createPlayers } from './players';
 import { createScene } from './scene';
+import { createShockwaves } from './shockwave';
 import { TUNING } from '../sim/tuning';
 
 export type Overlay = {
@@ -52,8 +53,9 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   const ball = createBall();
   const markers = createMarkers();
   const debug = createDebug();
+  const shockwaves = createShockwaves();
   const rig = createCameraRig(canvas.clientWidth > 0 && canvas.clientHeight > 0 ? canvas.clientWidth / canvas.clientHeight : 16 / 9);
-  scene.add(players.group, ball.group, markers.group, debug.group);
+  scene.add(players.group, ball.group, markers.group, debug.group, shockwaves.group);
 
   let time = 0;
   let last: number | null = null;
@@ -93,6 +95,8 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
         cameraTarget.z = humanPos.z;
       }
       rig.update(humanPos ? cameraTarget : null, overlay.view, dt, overlay.fx.shake);
+      // Les ondes sont en temps réel (age) : elles se voient pendant l'arrêt sur image.
+      shockwaves.update(overlay.fx.shockwaves, rig.camera);
       gl.render(scene, rig.camera);
     },
     resize(width, height) {
@@ -105,6 +109,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       ball.dispose();
       markers.dispose();
       debug.dispose();
+      shockwaves.dispose();
       disposeScene();
       gl.dispose();
     },

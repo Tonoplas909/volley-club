@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createFx } from '../../src/fx/fx';
 import { createInitialState } from '../../src/sim/simulation';
+import { TUNING } from '../../src/sim/tuning';
 import { initialScore } from '../../src/sim/rules';
 import type { GameEvent, GameState, Gesture, MatchConfig, QualityTier } from '../../src/sim/types';
 
@@ -277,5 +278,125 @@ describe('fx : plongeon', () => {
     const fx = createFx();
     fx.onEvents([dive], calm);
     expect(fx.advance(0.016).timeScale).toBe(1);
+  });
+});
+
+describe("fx : flash et onde de choc des attaques parfaites (spec § 6.1)", () => {
+  const withBall = (pos: { x: number; y: number; z: number }): GameState => ({ ...calm, ball: { ...calm.ball, pos } });
+  const hit = withBall({ x: 1.5, y: 2.2, z: -3 });
+  const by = (playerId: number, gesture: Gesture, tier: QualityTier): GameEvent => ({
+    type: 'touch', playerId, gesture, quality: 0.9, tier,
+  });
+  const { peak, seconds } = TUNING.fx.flash;
+
+  it("attaque parfaite de l'humain : flash au pic, moitié à mi-durée, 0 à la fin, aucune onde", () => {
+    const fx = createFx({ humanId: 0 });
+    fx.onEvents([by(0, 'attack', 'perfect')], hit);
+    const f0 = fx.advance(0);
+    expect(f0.flash).toBeCloseTo(peak, 6);
+    expect(f0.shockwaves).toEqual([]);
+    const f1 = fx.advance(seconds / 2);
+    expect(f1.flash).toBeCloseTo(peak / 2, 6);
+    expect(f1.shockwaves).toEqual([]);
+    expect(fx.advance(seconds / 2).flash).toBe(0);
+  });
+
+  it("une attaque good (de l'humain ou d'un autre) ne donne ni flash ni onde", () => {
+    const fx = createFx({ humanId: 0 });
+    fx.onEvents([by(0, 'attack', 'good'), by(2, 'attack', 'good'), by(2, 'attack', 'ok')], hit);
+    const f = fx.advance(0);
+    expect(f.flash).toBe(0);
+    expect(f.shockwaves).toEqual([]);
+  });
+
+  it("attaque parfaite d'un autre joueur : pas de flash, une onde au ballon et à la couleur de son équipe", () => {
+    const fx = createFx({ humanId: 0 });
+    fx.onEvents([by(2, 'attack', 'perfect')], hit);
+    const f = fx.advance(0);
+    expect(f.flash).toBe(0);
+    expect(f.shockwaves).toHaveLength(1);
+    expect(f.shockwaves[0]).toEqual({ pos: { x: 1.5, y: 2.2, z: -3 }, age: 0, team: 1 });
+  });
+
+  it("l'onde garde sa position même si le ballon bouge ensuite, et son âge suit le temps réel", () => {
+    const fx = createFx({ humanId: 0 });
+    fx.onEvents([by(1, 'attack', 'perfect')], hit);
+    fx.advance(0.05);
+    const f = fx.advance(0.1);
+    expect(f.shockwaves).toHaveLength(1);
+    expect(f.shockwaves[0]!.age).toBeCloseTo(0.15, 6);
+    expect(f.shockwaves[0]!.team).toBe(0);
+  });
+
+  it("l'onde est retirée après sa durée", () => {
+    const fx = createFx({ humanId: 0 });
+    fx.onEvents([by(2, 'attack', 'perfect')], hit);
+    expect(fx.advance(0.29).shockwaves).toHaveLength(1);
+    expect(fx.advance(0.02).shockwaves).toEqual([]);
+  });
+
+  it("reducedMotion : l'attaque parfaite de l'humain donne une onde et aucun flash", () => {
+    const fx = createFx({ humanId: 0, reducedMotion: true });
+    fx.onEvents([by(0, 'attack', 'perfect')], hit);
+    const f = fx.advance(0);
+    expect(f.flash).toBe(0);
+    expect(f.shockwaves).toHaveLength(1);
+    expect(f.shockwaves[0]!.team).toBe(0);
+  });
+
+  it('les autres gestes ne produisent ni flash ni onde', () => {
+    const fx = createFx({ humanId: 0 });
+    const gestures: Gesture[] = ['serve', 'reception', 'set', 'block'];
+    fx.onEvents(gestures.flatMap((g) => [by(0, g, 'perfect'), by(2, g, 'perfect')]), hit);
+    const f = fx.advance(0);
+    expect(f.flash).toBe(0);
+    expect(f.shockwaves).toEqual([]);
+  });
+
+  it('sans humain (humanId absent ou null), toute attaque parfaite donne une onde', () => {
+    for (const options of [{}, { humanId: null }]) {
+      const fx = createFx(options);
+      fx.onEvents([by(0, 'attack', 'perfect')], hit);
+      const f = fx.advance(0);
+      expect(f.flash).toBe(0);
+      expect(f.shockwaves).toHaveLength(1);
+    }
+  });
+
+  it('vigilance 8 : deux attaques parfaites de l\'humain ne dépassent pas le pic, même rapprochées', () => {
+    const fx = createFx({ humanId: 0 });
+    fx.onEvents([by(0, 'attack', 'perfect'), by(0, 'attack', 'perfect')], hit);
+    expect(fx.advance(0).flash).toBeLessThanOrEqual(peak);
+    fx.advance(0.05);
+    fx.onEvents([by(0, 'attack', 'perfect')], hit);
+    expect(fx.advance(0).flash).toBeLessThanOrEqual(peak);
+  });
+
+  it('vigilance 8 : six attaques parfaites d\'autres joueurs laissent 4 ondes, les plus anciennes retirées', () => {
+    const fx = createFx({ humanId: 0 });
+    for (let i = 0; i < 6; i++) {
+      fx.onEvents([by(2, 'attack', 'perfect')], withBall({ x: i, y: 2, z: 1 }));
+      fx.advance(0.001);
+    }
+    const f = fx.advance(0);
+    expect(f.shockwaves).toHaveLength(4);
+    expect(f.shockwaves.map((w) => w.pos.x)).toEqual([2, 3, 4, 5]);
+  });
+
+  it('temps réel : pendant le gel de 140 ms, le flash décroît déjà', () => {
+    const fx = createFx({ humanId: 0 });
+    fx.onEvents([by(0, 'attack', 'perfect')], hit);
+    const f = fx.advance(0.05);
+    expect(f.timeScale).toBe(0);
+    expect(f.flash).toBeLessThan(peak);
+    expect(f.flash).toBeGreaterThan(0);
+  });
+
+  it("l'onde vieillit aussi pendant le gel", () => {
+    const fx = createFx({ humanId: 0 });
+    fx.onEvents([by(2, 'attack', 'perfect')], hit);
+    const f = fx.advance(0.05);
+    expect(f.timeScale).toBe(0);
+    expect(f.shockwaves[0]!.age).toBeCloseTo(0.05, 6);
   });
 });

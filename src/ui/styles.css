@@ -117,6 +117,15 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px s
   .controls dt { margin-top: 0; }
 }
 
+/* Flash d'une attaque parfaite : sous les panneaux (créé avant eux), ne capte aucun clic */
+.impact-flash {
+  position: absolute;
+  inset: 0;
+  background: #fff4d6;
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* HUD */
 .hud { position: absolute; inset: 0; }
 

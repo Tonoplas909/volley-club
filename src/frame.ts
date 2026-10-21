@@ -24,9 +24,9 @@ import type { LastPressView } from './ui/pressCard';
 /** Facteur de ralenti du mode debug (spec V1 § 3.3), multiplié par celui de l'impact. */
 export const DEBUG_TIME_SCALE = 0.25;
 /** Temps figé et caméra immobile (pause). */
-export const PAUSED_FX: FxFrame = { timeScale: 0, shake: { x: 0, y: 0 } };
+export const PAUSED_FX: FxFrame = { timeScale: 0, shake: { x: 0, y: 0 }, flash: 0, shockwaves: [] };
 /** Temps normal et caméra immobile (fond du menu). */
-export const NEUTRAL_FX: FxFrame = { timeScale: 1, shake: { x: 0, y: 0 } };
+export const NEUTRAL_FX: FxFrame = { timeScale: 1, shake: { x: 0, y: 0 }, flash: 0, shockwaves: [] };
 
 /** Options de l'interface pour un match (hors MatchConfig). */
 export type MatchOptions = { magnet: boolean; reducedMotion: boolean };
@@ -72,7 +72,7 @@ export function newSession(config: MatchConfig, options: MatchOptions): Session 
   });
   const human = state.players.find((p) => p.id === config.humanPlayerId);
   return {
-    config, options, brains, fx: createFx({ reducedMotion: options.reducedMotion }),
+    config, options, brains, fx: createFx({ reducedMotion: options.reducedMotion, humanId: config.humanPlayerId }),
     prev: state, curr: state, acc: 0, paused: false, pauseGuard: 0, debug: false, view: initialView(human?.team ?? 0), actionLatch: false, diveLatch: false, events: [],
     pendingExplanation: null, lastPress: null, lastQuality: 0,
   };

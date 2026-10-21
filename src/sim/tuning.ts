@@ -45,6 +45,10 @@ export const TUNING = {
     slowMo: { scale: 0.35, seconds: 0.6, easeOutSeconds: 0.15 },
     shake: { attack: 0.25, block: 0.2, landing: 0.12, dive: 0.08, decaySeconds: 0.25 },
     feedbackSeconds: 1.5,
+    /** Flash d'écran sur une attaque parfaite de l'humain : opacité maximale, durée en secondes de temps réel. */
+    flash: { peak: 0.6, seconds: 0.18 },
+    /** Onde de choc sur une attaque parfaite d'un autre joueur : durée (s, temps réel), rayon final (m), nombre de traits. */
+    shockwave: { seconds: 0.3, radius: 1.2, lines: 8 },
   },
   /** Plongeon : glissade (mètres, ticks), recharge, réception d'urgence et seuils de l'IA. */
   dive: {

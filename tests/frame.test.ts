@@ -87,7 +87,7 @@ describe('advanceFrame : gel et pause (point de vigilance 1)', () => {
     for (let i = 0; i < 10; i++) {
       now += 1;
       out = advanceFrame(s, input(), 1, now);
-      expect(out.overlay.fx).toEqual({ timeScale: 0, shake: { x: 0, y: 0 } });
+      expect(out.overlay.fx).toEqual({ timeScale: 0, shake: { x: 0, y: 0 }, flash: 0, shockwaves: [] });
       expect(out.hud.paused).toBe(true);
     }
     expect(s.curr.tick).toBe(tick0);

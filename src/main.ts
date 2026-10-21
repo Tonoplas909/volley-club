@@ -7,6 +7,7 @@ import { createRenderer, isWebGLAvailable, type Overlay, type Renderer } from '.
 import { createInitialState } from './sim/simulation';
 import type { MatchConfig } from './sim/types';
 import { createHud } from './ui/hud';
+import { createImpactFlash } from './ui/impactFlash';
 import { createMenu } from './ui/menu';
 import './ui/styles.css';
 
@@ -75,6 +76,8 @@ function start(canvas: HTMLCanvasElement, ui: HTMLElement): void {
   document.addEventListener('pointerlockchange', () => lockEvent('change'));
   document.addEventListener('pointerlockerror', () => lockEvent('error'));
 
+  // Avant le HUD et le menu : le calque du flash reste sous leurs panneaux.
+  const flash = createImpactFlash(ui);
   const hud = createHud(ui, {
     onReplay: () => {
       if (session) startMatch({ ...session.config, seed: Date.now() >>> 0 }, session.options.magnet);
@@ -148,6 +151,7 @@ function start(canvas: HTMLCanvasElement, ui: HTMLElement): void {
     const frameInput = input.poll();
     const s = session;
     if (!s) {
+      flash.update(0);
       renderer.render(backdrop, backdrop, 0, emptyOverlay);
       return;
     }
@@ -160,6 +164,7 @@ function start(canvas: HTMLCanvasElement, ui: HTMLElement): void {
     // Le curseur doit être libre pour cliquer « Reprendre » (pause) ou « Rejouer » / « Menu » (fin de match).
     if ((s.paused || s.curr.phase === 'matchEnd') && pointer.locked) releaseLock();
     renderer.render(s.prev, s.curr, s.acc / STEP_DT, overlay);
+    flash.update(overlay.fx.flash);
     hud.update(s.curr, view, s.config.humanPlayerId);
   }
   requestAnimationFrame(frame);
