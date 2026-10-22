@@ -39,7 +39,7 @@ function humanServesSeed(): number {
 function input(command: Partial<Command> = {}, extra: Partial<InputFrame> = {}): InputFrame {
   return {
     command: { ...NEUTRAL_COMMAND, ...command },
-    pausePressed: false, debugPressed: false, device: 'keyboard', look: NO_LOOK, ...extra,
+    pausePressed: false, debugPressed: false, device: 'keyboard', look: NO_LOOK, actionHeld: false, ...extra,
   };
 }
 const press = (): InputFrame => input({ actionPressed: true });
