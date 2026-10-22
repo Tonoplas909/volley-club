@@ -164,6 +164,25 @@ describe('timingRing', () => {
     expect(timingRing(atTick(running, t), HUMAN, NEUTRAL)).toBeNull();
   });
 
+  it('charge (spec Attaque v2 § 5.2) : à charge pleine, l’anneau s’ouvre plus tôt ; à 0,5, identique au défaut', () => {
+    const s = standOn(
+      rallyState(HIGH_NEAR_NET, 10, { toucher: TEAMMATE, team: 0, touches: 2, gesture: 'set' }),
+      HUMAN, 'attack',
+    );
+    const firstOpen = (charge?: number): number => {
+      for (let t = 10; t < 200; t++) {
+        const ring = charge === undefined ? timingRing(atTick(s, t), HUMAN, NEUTRAL) : timingRing(atTick(s, t), HUMAN, NEUTRAL, charge);
+        if (ring !== null) return t;
+      }
+      throw new Error('anneau jamais ouvert');
+    };
+    expect(firstOpen(1)).toBeLessThan(firstOpen());
+    expect(idealPressTick(s, HUMAN, 'attack', 1)).toBe(firstOpen(1) + TIMING_RING_TICKS);
+    for (let t = 10; t < 200; t++) {
+      expect(timingRing(atTick(s, t), HUMAN, NEUTRAL, 0.5)).toBe(timingRing(atTick(s, t), HUMAN, NEUTRAL));
+    }
+  });
+
   it("contre : affiché si les mains couvrent l'abscisse de la frappe adverse au filet", () => {
     // Passe adverse (joueur 2) haute près du filet ; le joueur 3 attaque à 1 m du filet.
     const set = launchTo({ x: 1, y: 0.8, z: 5 }, { x: 1, y: R, z: 1 }, 2.0, 0);

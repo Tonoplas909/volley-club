@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { initialView, NO_LOOK, screenToWorld, type LookInput } from '../src/camera/view';
-import { advanceFrame, newSession, type Session } from '../src/frame';
+import { aimPointFromView, initialView, NO_LOOK, screenToWorld, type LookInput } from '../src/camera/view';
+import { advanceFrame, forwardAim, newSession, type Session } from '../src/frame';
 import type { InputFrame } from '../src/input/input';
 import { MAX_FRAME_DT, STEP_DT } from '../src/loop';
 import { launchTo, positionAt, secondsSince } from '../src/sim/ball';
@@ -10,6 +10,7 @@ import { contactPoint, gestureFor, idealPressTick } from '../src/sim/touch';
 import { TUNING } from '../src/sim/tuning';
 import type { Command, GameEvent, GameState, MatchConfig, Vec2 } from '../src/sim/types';
 import { applyMagnetism } from '../src/ui/assist';
+import { explainPress, humansBallGesture } from '../src/ui/overlay';
 import { missReasonText } from '../src/ui/texts';
 
 // step enveloppé (appelle l'original) pour relever les commandes que frame.ts lui transmet.
@@ -583,5 +584,386 @@ describe('souris capturée : pause et aide', () => {
     const pending = { locked: false, lockLost: false, requestPending: true };
     expect(advanceFrame(s, input(), 0.016, 1, pending).hud.mouseHint).toBe(false);
     expect(advanceFrame(s, input(), 0.016, 1.016, { ...pending, requestPending: false }).hud.mouseHint).toBe(true);
+  });
+});
+
+describe('advanceFrame : charge du saut d’attaque (spec Attaque v2 § 5.1)', () => {
+  const R = TUNING.ball.radius;
+  const { chargeSeconds, chargeHoldMaxSeconds } = TUNING.attack2;
+  /** Frames de 0,125 s : exactes en binaire, 16 frames font 2,0 s pile. */
+  const DT = 0.125;
+  const humanCommands = (from: number): Command[] =>
+    vi.mocked(step).mock.calls.slice(from).map(([, commands]) => commands[HUMAN]!);
+  const held = (command: Partial<Command> = {}, extra: Partial<InputFrame> = {}): InputFrame =>
+    input(command, { actionHeld: true, ...extra });
+  const pressHeld = (): InputFrame => held({ actionPressed: true });
+
+  /**
+   * Échange en cours : passe du coéquipier (3e touche à venir, ballon de l'humain), humain immobile
+   * sous le point de frappe. `flight` : durée du vol de la passe (s), pour garder l'attaque attendue longtemps.
+   */
+  function attackSession(flight = 3.5, tick = 10): Session {
+    const s = newSession(config(1), { magnet: false, reducedMotion: false });
+    const traj = launchTo({ x: 1, y: 2, z: -3 }, { x: -1, y: R, z: -1 }, flight, 0);
+    const base: GameState = {
+      ...s.curr, tick, phase: 'rally', phaseStartTick: 0,
+      ball: {
+        mode: 'flying', traj, pos: positionAt(traj, secondsSince(traj, tick)),
+        lastTouch: { playerId: 1, team: 0, gesture: 'set', tick: 0 },
+      },
+      rally: { touchingTeam: 0, touches: 2, lastToucherId: 1 },
+      events: [],
+    };
+    const hit = contactPoint(base, HUMAN, 'attack')!;
+    const placed: GameState = {
+      ...base,
+      players: base.players.map((p) => (p.id === HUMAN
+        ? { ...p, pos: { x: hit.x, y: 0, z: hit.z }, vel: { x: 0, z: 0 } }
+        : p)),
+    };
+    s.curr = placed;
+    s.prev = placed;
+    expect(humansBallGesture(placed, HUMAN, NEUTRAL_COMMAND)).toBe('attack');
+    return s;
+  }
+
+  /** Échange en cours : attaque adverse qui descend sur l'humain (réception attendue). */
+  function receptionSession(): Session {
+    const s = newSession(config(1), { magnet: false, reducedMotion: false });
+    const traj = launchTo({ x: 1, y: 3, z: 1 }, { x: -2, y: R, z: -5 }, 1.2, 0);
+    const base: GameState = {
+      ...s.curr, tick: 10, phase: 'rally', phaseStartTick: 0,
+      ball: {
+        mode: 'flying', traj, pos: positionAt(traj, secondsSince(traj, 10)),
+        lastTouch: { playerId: 3, team: 1, gesture: 'attack', tick: 0 },
+      },
+      rally: { touchingTeam: 1, touches: 3, lastToucherId: 3 },
+      events: [],
+    };
+    const contact = contactPoint(base, HUMAN, 'reception')!;
+    const placed: GameState = {
+      ...base,
+      players: base.players.map((p) => (p.id === HUMAN
+        ? { ...p, pos: { x: contact.x, y: 0, z: contact.z - 1 }, vel: { x: 0, z: 0 } }
+        : p)),
+    };
+    s.curr = placed;
+    s.prev = placed;
+    expect(humansBallGesture(placed, HUMAN, NEUTRAL_COMMAND)).toBe('reception');
+    return s;
+  }
+
+  it('forwardAim : vers le camp adverse', () => {
+    expect(forwardAim(0)).toEqual({ x: 0, z: 1 });
+    expect(forwardAim(1)).toEqual({ x: 0, z: -1 });
+  });
+
+  it('un front Action quand l’attaque est attendue démarre une charge ; le relâchement envoie jumpCharge et la visée avant', () => {
+    const s = attackSession();
+    const calls = vi.mocked(step).mock.calls.length;
+    let now = 1;
+    advanceFrame(s, pressHeld(), DT, now);
+    expect(s.charge).not.toBeNull();
+    now += DT;
+    const out = advanceFrame(s, held(), DT, now);
+    expect(s.charge!.held).toBeCloseTo(0.25, 12);
+    expect(s.charge!.value).toBeCloseTo(0.5, 12);
+    expect(out.hud.charge).toBeCloseTo(0.5, 12);
+    expect(out.overlay.charge).toBeCloseTo(0.5, 12);
+    expect(out.overlay.charging).toBe(true);
+    const during = humanCommands(calls);
+    expect(during.length).toBeGreaterThan(0);
+    expect(during.every((c) => !c.actionPressed)).toBe(true);
+
+    const fromRelease = vi.mocked(step).mock.calls.length;
+    now += STEP_DT * 1.5;
+    const released = advanceFrame(s, input(), STEP_DT * 1.5, now); // un seul step
+    expect(s.charge).toBeNull();
+    expect(released.overlay.charging).toBe(false);
+    expect(released.hud.charge).toBeNull();
+    const [sent] = humanCommands(fromRelease);
+    expect(sent!.actionPressed).toBe(true);
+    expect(sent!.jumpCharge).toBeCloseTo(0.5, 12);
+    expect(sent!.aim).toEqual(forwardAim(0));
+    expect(s.chargeLatch).toBeNull();
+    // Le saut d'attaque est parti.
+    expect(s.curr.players[HUMAN]!.pending?.gesture).toBe('attack');
+  });
+
+  it('charge pleine après 0,6 s ; envoi automatique à 2,0 s (vigilance 5), sans recharge tant que le bouton reste tenu', () => {
+    const s = attackSession();
+    const calls = vi.mocked(step).mock.calls.length;
+    let now = 1;
+    advanceFrame(s, pressHeld(), 0.1, now);
+    for (let i = 0; i < 5; i++) {
+      now += 0.1;
+      advanceFrame(s, held(), 0.1, now);
+    }
+    expect(s.charge!.held).toBeCloseTo(0.6, 9);
+    expect(s.charge!.value).toBe(1);
+    expect(humanCommands(calls).every((c) => !c.actionPressed)).toBe(true);
+
+    // Nouvelle charge, frames exactes : 16 × 0,125 = 2,0 s = chargeSeconds + chargeHoldMaxSeconds.
+    expect(chargeSeconds + chargeHoldMaxSeconds).toBe(2);
+    const t = attackSession();
+    const from = vi.mocked(step).mock.calls.length;
+    advanceFrame(t, pressHeld(), DT, now += DT);
+    for (let i = 1; i < 15; i++) advanceFrame(t, held(), DT, now += DT);
+    expect(t.charge!.held).toBe(1.875);
+    expect(humanCommands(from).every((c) => !c.actionPressed)).toBe(true);
+    advanceFrame(t, held(), DT, now += DT); // 2,0 s : envoi automatique
+    expect(t.charge).toBeNull();
+    const sent = humanCommands(from).filter((c) => c.actionPressed);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.jumpCharge).toBe(1);
+    // Bouton toujours tenu : aucune charge ne repart.
+    const after = vi.mocked(step).mock.calls.length;
+    for (let i = 0; i < 8; i++) advanceFrame(t, held(), DT, now += DT);
+    expect(t.charge).toBeNull();
+    expect(humanCommands(after).every((c) => !c.actionPressed)).toBe(true);
+  });
+
+  it('un front Action quand une réception est attendue est transmis tout de suite, avec jumpCharge 0,5', () => {
+    const s = receptionSession();
+    const calls = vi.mocked(step).mock.calls.length;
+    advanceFrame(s, pressHeld(), STEP_DT * 1.5, 1);
+    expect(s.charge).toBeNull();
+    const [cmd] = humanCommands(calls);
+    expect(cmd!.actionPressed).toBe(true);
+    expect(cmd!.jumpCharge).toBe(0.5);
+  });
+
+  it('annulation (vigilance 8) : la charge cesse à la fin du point, rien n’est envoyé, ni au relâchement ni au point suivant', () => {
+    const s = attackSession(2.0, 80); // le ballon touche le sol dans 40 ticks
+    const calls = vi.mocked(step).mock.calls.length;
+    let now = 1;
+    advanceFrame(s, pressHeld(), 0.05, now);
+    expect(s.charge).not.toBeNull();
+    for (let i = 0; i < 40 && s.curr.phase === 'rally'; i++) advanceFrame(s, held(), 0.05, now += 0.05);
+    expect(s.curr.phase).toBe('pointScored');
+    advanceFrame(s, held(), 0.05, now += 0.05);
+    expect(s.charge).toBeNull();
+    advanceFrame(s, input(), 0.05, now += 0.05); // relâchement
+    expect(s.chargeLatch).toBeNull();
+    for (let i = 0; i < 200 && s.curr.phase !== 'serve'; i++) advanceFrame(s, input(), 0.05, now += 0.05);
+    expect(s.curr.phase).toBe('serve');
+    advanceFrame(s, input(), 0.05, now += 0.05);
+    expect(humanCommands(calls).every((c) => !c.actionPressed)).toBe(true);
+  });
+
+  it('pause (vigilance 3) : la charge est gelée, puis continue à la reprise', () => {
+    const s = attackSession();
+    let now = 1;
+    advanceFrame(s, pressHeld(), DT, now);
+    advanceFrame(s, held({}, { pausePressed: true }), DT, now += DT);
+    expect(s.paused).toBe(true);
+    const frozen = s.charge!.value;
+    const tick = s.curr.tick;
+    for (let i = 0; i < 4; i++) {
+      const out = advanceFrame(s, held(), 0.25, now += 0.25);
+      expect(out.hud.charge).toBe(frozen);
+    }
+    expect(s.charge!.value).toBe(frozen);
+    expect(s.curr.tick).toBe(tick);
+    advanceFrame(s, held({}, { pausePressed: true }), DT, now += DT);
+    expect(s.paused).toBe(false);
+    expect(s.charge!.value).toBeGreaterThan(frozen);
+  });
+
+  it('pause : un front Action ne démarre pas de charge, et n’est pas joué à la reprise', () => {
+    const s = attackSession();
+    let now = 1;
+    advanceFrame(s, input({}, { pausePressed: true }), DT, now);
+    expect(s.paused).toBe(true);
+    advanceFrame(s, pressHeld(), DT, now += DT);
+    expect(s.charge).toBeNull();
+    expect(s.actionLatch).toBe(false);
+    const calls = vi.mocked(step).mock.calls.length;
+    advanceFrame(s, held({}, { pausePressed: true }), DT, now += DT);
+    expect(s.paused).toBe(false);
+    advanceFrame(s, held(), DT, now += DT);
+    expect(s.charge).toBeNull();
+    expect(humanCommands(calls).every((c) => !c.actionPressed)).toBe(true);
+  });
+
+  it('gel (vigilance 4) : la charge avance sans step, et le relâchement attend le premier step', () => {
+    const s = attackSession();
+    let now = 1;
+    advanceFrame(s, pressHeld(), STEP_DT * 1.5, now);
+    s.fx.onEvents([attackTouch], s.curr); // gel de 140 ms
+    const tick = s.curr.tick;
+    const value = s.charge!.value;
+    const calls = vi.mocked(step).mock.calls.length;
+    advanceFrame(s, held(), 0.05, now += 0.05);
+    expect(s.curr.tick).toBe(tick);
+    expect(s.charge!.value).toBeGreaterThan(value);
+    const latched = s.charge!.value;
+    advanceFrame(s, input(), 0.05, now += 0.05); // relâché pendant le gel
+    expect(s.curr.tick).toBe(tick);
+    expect(s.charge).toBeNull();
+    expect(s.chargeLatch).toBe(latched);
+    expect(humanCommands(calls)).toEqual([]);
+    for (let i = 0; i < 10 && s.curr.tick === tick; i++) advanceFrame(s, input(), 0.05, now += 0.05);
+    const cmds = humanCommands(calls);
+    expect(cmds[0]!.actionPressed).toBe(true);
+    expect(cmds[0]!.jumpCharge).toBe(latched);
+    expect(cmds.slice(1).every((c) => !c.actionPressed)).toBe(true);
+    expect(s.chargeLatch).toBeNull();
+  });
+
+  it('feinte pendant une charge (vigilance 4 du plan) : charge annulée, feinte jouée, le relâchement n’envoie rien', () => {
+    const s = attackSession();
+    let now = 1;
+    advanceFrame(s, pressHeld(), DT, now);
+    const calls = vi.mocked(step).mock.calls.length;
+    advanceFrame(s, held({ tipPressed: true }), STEP_DT * 1.5, now += STEP_DT * 1.5);
+    expect(s.charge).toBeNull();
+    const [cmd] = humanCommands(calls);
+    expect(cmd!.tipPressed).toBe(true);
+    expect(cmd!.actionPressed).toBe(false);
+    expect(s.tipLatch).toBe(false);
+    expect(s.curr.players[HUMAN]!.pending).toMatchObject({ gesture: 'attack', tip: true });
+    expect(s.pendingExplanation).not.toBeNull();
+    const after = vi.mocked(step).mock.calls.length;
+    advanceFrame(s, input(), DT, now += DT); // relâchement
+    advanceFrame(s, input(), DT, now += DT);
+    expect(humanCommands(after).every((c) => !c.actionPressed && !c.tipPressed)).toBe(true);
+  });
+
+  it('frappe au sol pendant une charge : charge annulée, frappe au sol transmise', () => {
+    const s = attackSession();
+    let now = 1;
+    advanceFrame(s, pressHeld(), DT, now);
+    const calls = vi.mocked(step).mock.calls.length;
+    advanceFrame(s, held({ groundHitPressed: true }), STEP_DT * 1.5, now += STEP_DT * 1.5);
+    expect(s.charge).toBeNull();
+    const [cmd] = humanCommands(calls);
+    expect(cmd!.groundHitPressed).toBe(true);
+    expect(cmd!.actionPressed).toBe(false);
+    expect(s.groundHitLatch).toBe(false);
+    // Geste immédiat : la carte du dernier appui est déjà remplie (touche ou raté de frappe au sol).
+    expect(s.lastPress).not.toBeNull();
+    const after = vi.mocked(step).mock.calls.length;
+    advanceFrame(s, input(), DT, now += DT);
+    expect(humanCommands(after).every((c) => !c.actionPressed && !c.groundHitPressed)).toBe(true);
+  });
+
+  it('maintien sans front (vigilance 3 du plan) : aucune charge', () => {
+    const s = attackSession();
+    const calls = vi.mocked(step).mock.calls.length;
+    let now = 1;
+    for (let i = 0; i < 8; i++) {
+      advanceFrame(s, held(), DT, now += DT);
+      expect(s.charge).toBeNull();
+    }
+    expect(humanCommands(calls).every((c) => !c.actionPressed)).toBe(true);
+  });
+
+  it('un clic très bref (front sans maintien) donne un saut bas, jumpCharge 0', () => {
+    const s = attackSession();
+    const calls = vi.mocked(step).mock.calls.length;
+    advanceFrame(s, press(), STEP_DT * 1.5, 1);
+    expect(s.charge).toBeNull();
+    const [cmd] = humanCommands(calls);
+    expect(cmd!.actionPressed).toBe(true);
+    expect(cmd!.jumpCharge).toBe(0);
+  });
+
+  it('2e touche (vigilance 1 du plan) : lâcher « avant » pendant la charge ne l’annule pas, et l’envoi vise vers l’avant', () => {
+    const s = newSession(config(1), { magnet: false, reducedMotion: false });
+    const traj = launchTo({ x: 0, y: 3.2, z: -2.5 }, { x: 0, y: R, z: -1 }, 1.4, 0);
+    const tick = 20;
+    const base: GameState = {
+      ...s.curr, tick, phase: 'rally', phaseStartTick: 0,
+      ball: {
+        mode: 'flying', traj, pos: positionAt(traj, secondsSince(traj, tick)),
+        lastTouch: { playerId: 1, team: 0, gesture: 'reception', tick: 5 },
+      },
+      rally: { touchingTeam: 0, touches: 1, lastToucherId: 1 },
+      events: [],
+    };
+    const hit = contactPoint(base, HUMAN, 'attack')!;
+    const placed: GameState = {
+      ...base,
+      players: base.players.map((p) => (p.id === HUMAN
+        ? { ...p, pos: { x: hit.x, y: 0, z: hit.z }, vel: { x: 0, z: 0 } }
+        : p)),
+    };
+    s.curr = placed;
+    s.prev = placed;
+    expect(humansBallGesture(placed, HUMAN, { ...NEUTRAL_COMMAND, aim: { x: 0, z: 1 } })).toBe('attack');
+    expect(humansBallGesture(placed, HUMAN, NEUTRAL_COMMAND)).toBe('set');
+
+    let now = 1;
+    // Front Action avec « avant » tenu (yaw 0 : l'avant de l'écran est +z, vers le filet).
+    advanceFrame(s, held({ actionPressed: true, aim: { x: 0, z: 1 } }), STEP_DT * 1.5, now);
+    expect(s.charge).not.toBeNull();
+    const calls = vi.mocked(step).mock.calls.length;
+    const out = advanceFrame(s, held(), STEP_DT * 1.5, now += STEP_DT * 1.5); // visée revenue à (0, 0)
+    expect(s.charge).not.toBeNull();
+    expect(out.hud.expected?.gesture).toBe('attack');
+    advanceFrame(s, input(), STEP_DT * 1.5, now += STEP_DT * 1.5);
+    const sent = humanCommands(calls).filter((c) => c.actionPressed);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.aim).toEqual(forwardAim(0));
+    expect(s.curr.players[HUMAN]!.pending?.gesture).toBe('attack');
+  });
+
+  it('perte de capture (vigilance 2 du plan) : pause, charge gelée, rien n’est envoyé', () => {
+    const s = attackSession();
+    let now = 1;
+    advanceFrame(s, pressHeld(), DT, now);
+    const value = s.charge!.value;
+    const calls = vi.mocked(step).mock.calls.length;
+    advanceFrame(s, input(), DT, now += DT, { locked: false, lockLost: true });
+    expect(s.paused).toBe(true);
+    for (let i = 0; i < 4; i++) advanceFrame(s, input(), DT, now += DT, { locked: false, lockLost: false });
+    expect(s.paused).toBe(true);
+    expect(s.charge).toEqual({ held: DT, value });
+    expect(s.chargeLatch).toBeNull();
+    expect(humanCommands(calls)).toEqual([]);
+  });
+
+  it('aimPoint : rempli par la vue quand l’attaque est attendue, null pour une réception', () => {
+    const s = attackSession();
+    s.view = { yaw: 0.3, pitch: 0.25 };
+    const before = s.curr.players[HUMAN]!;
+    const expected = aimPointFromView({ x: before.pos.x, z: before.pos.z }, 0, s.view, false);
+    const calls = vi.mocked(step).mock.calls.length;
+    const out = advanceFrame(s, input(), STEP_DT * 1.5, 1);
+    const [cmd] = humanCommands(calls);
+    expect(cmd!.aimPoint).toEqual(expected);
+    expect(out.hud.crosshair).toBe(true);
+    expect(out.overlay.aimPoint).not.toBeNull();
+
+    const r = receptionSession();
+    const from = vi.mocked(step).mock.calls.length;
+    const rOut = advanceFrame(r, input(), STEP_DT * 1.5, 1);
+    expect(humanCommands(from)[0]!.aimPoint).toBeNull();
+    expect(rOut.hud.crosshair).toBe(false);
+    expect(rOut.overlay.aimPoint).toBeNull();
+    expect(rOut.hud.charge).toBeNull();
+  });
+
+  it('aimPoint pendant la charge : la vue « en attaque » (montée de la caméra)', () => {
+    const s = attackSession();
+    let now = 1;
+    advanceFrame(s, pressHeld(), DT, now);
+    const before = s.curr.players[HUMAN]!;
+    const expected = aimPointFromView({ x: before.pos.x, z: before.pos.z }, 0, s.view, true);
+    const calls = vi.mocked(step).mock.calls.length;
+    advanceFrame(s, held(), STEP_DT * 1.5, now += STEP_DT * 1.5);
+    expect(humanCommands(calls)[0]!.aimPoint).toEqual(expected);
+  });
+
+  it('l’explication d’un appui chargé est calculée avec sa charge (carte du dernier appui)', () => {
+    const s = attackSession(2.0, 10);
+    let now = 1;
+    advanceFrame(s, pressHeld(), DT, now);
+    const before = s.curr;
+    const charge = s.charge!.value;
+    advanceFrame(s, input(), STEP_DT * 1.5, now += STEP_DT * 1.5); // un step : l'envoi
+    expect(s.pendingExplanation).toEqual(explainPress(before, HUMAN, 'attack', before.tick + 1, charge));
+    expect(s.pendingExplanation).not.toEqual(explainPress(before, HUMAN, 'attack', before.tick + 1));
   });
 });

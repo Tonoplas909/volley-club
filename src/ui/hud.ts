@@ -25,6 +25,10 @@ export interface HudView {
   view: CameraView;
   /** Afficher l'aide « Clique pour orienter la caméra à la souris » (souris non capturée). */
   mouseHint: boolean;
+  /** Afficher le réticule de visée (point visé par la vue, spec Attaque v2 § 4.4). */
+  crosshair: boolean;
+  /** Charge du saut d'attaque en cours, de 0 à 1 (cercle autour du réticule) ; null = pas de charge. */
+  charge: number | null;
 }
 
 export interface Hud {

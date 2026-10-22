@@ -18,15 +18,17 @@ export const TIMING_RING_TICKS = 30;
  * Réception, passe et attaque suivent exactement le jugement de la simulation (evaluatePress, avec
  * la position projetée au sommet du saut pour l'attaque). Le contre se juge à l'interception :
  * les mains (± block.halfWidth) doivent couvrir l'abscisse de passage au filet. Le service est
- * toujours à portée (placement 1).
+ * toujours à portée (placement 1). `charge` : hauteur du saut d'attaque (ignorée par les autres gestes).
  */
-export function isInReach(state: GameState, player: PlayerState, gesture: Gesture, ideal: number): boolean {
+export function isInReach(
+  state: GameState, player: PlayerState, gesture: Gesture, ideal: number, charge = 0.5,
+): boolean {
   if (gesture === 'serve') return true;
   if (gesture === 'block') {
     const contact = contactPoint(state, player.id, 'block');
     return contact !== null && Math.abs(contact.x - player.pos.x) <= TUNING.touch.block.halfWidth;
   }
-  return evaluatePress({ ...state, tick: ideal }, player.id, gesture) !== null;
+  return evaluatePress({ ...state, tick: ideal }, player.id, gesture, charge) !== null;
 }
 
 /**
@@ -99,18 +101,19 @@ export function diveGaugeView(readiness: number): { fill: number; ready: boolean
 /**
  * Anneau de timing : 1 = ouvert (30 ticks avant), 0 = instant idéal ; null = masqué.
  * Il n'apparaît que si c'est à l'humain de jouer ce ballon (humansBallGesture), dans les 30 ticks
- * qui précèdent l'instant idéal, et s'il est à portée.
+ * qui précèdent l'instant idéal, et s'il est à portée. `charge` : charge du saut d'attaque en cours
+ * (spec Attaque v2 § 5.2), qui déplace l'instant idéal de l'attaque ; ignorée par les autres gestes.
  */
-export function timingRing(state: GameState, humanId: number | null, cmd: Command): number | null {
+export function timingRing(state: GameState, humanId: number | null, cmd: Command, charge = 0.5): number | null {
   const gesture = humansBallGesture(state, humanId, cmd);
   if (gesture === null) return null;
   const human = state.players.find((p) => p.id === humanId);
   if (!human) return null;
-  const ideal = idealPressTick(state, human.id, gesture);
+  const ideal = idealPressTick(state, human.id, gesture, charge);
   if (ideal === null) return null;
   const gap = ideal - state.tick;
   if (gap < 0 || gap > TIMING_RING_TICKS) return null;
-  if (!isInReach(state, human, gesture, ideal)) return null;
+  if (!isInReach(state, human, gesture, ideal, charge)) return null;
   return gap / TIMING_RING_TICKS;
 }
 
@@ -125,18 +128,20 @@ export type PressExplanation = {
 /**
  * Explique un appui évalué au tick `pressTick` (la simulation l'évalue à `avant.tick + 1`), avec les
  * mêmes règles que evaluatePress (distance via pressDistance, timing de synchronisation pour le
- * contre). Sans point de contact connu, la distance est infinie.
+ * contre). Sans point de contact connu, la distance est infinie. `charge` : hauteur du saut
+ * d'attaque, comme pour evaluatePress (ignorée par les autres gestes).
  */
 export function explainPress(
   state: GameState,
   playerId: number,
   gesture: Gesture,
   pressTick: number,
+  charge = 0.5,
 ): PressExplanation {
-  const ideal = idealPressTick(state, playerId, gesture);
+  const ideal = idealPressTick(state, playerId, gesture, charge);
   const deltaTicks = ideal === null ? 0 : pressTick - ideal;
   const timing = gesture === 'block' ? blockSyncScore(deltaTicks) : timingScore(deltaTicks);
 
-  const distance = pressDistance(state, playerId, gesture) ?? Infinity;
+  const distance = pressDistance(state, playerId, gesture, charge) ?? Infinity;
   return { placement: placementScore(distance), timing, distance, deltaTicks };
 }

@@ -21,6 +21,12 @@ export type Overlay = {
   fx: FxFrame;
   /** Orientation de la caméra (3e personne). */
   view: CameraView;
+  /** Point visé au sol par la vue (cible de l'attaque, spec Attaque v2 § 4.4) ; null = pas de viseur. */
+  aimPoint: Vec2 | null;
+  /** Charge du saut d'attaque en cours, de 0 à 1 ; null = pas de charge. */
+  charge: number | null;
+  /** L'humain charge son saut d'attaque : la caméra monte comme pour une attaque (Ruling 9). */
+  charging: boolean;
 };
 
 export interface Renderer {

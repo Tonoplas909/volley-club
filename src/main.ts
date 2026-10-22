@@ -144,7 +144,7 @@ function start(canvas: HTMLCanvasElement, ui: HTMLElement): void {
 
   const emptyOverlay: Overlay = {
     humanId: null, assistZone: null, timingRing: null, events: [], debug: null, fx: NEUTRAL_FX,
-    view: initialView(0),
+    view: initialView(0), aimPoint: null, charge: null, charging: false,
   };
   let lastNow = performance.now();
 
