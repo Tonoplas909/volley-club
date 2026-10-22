@@ -93,6 +93,10 @@ export function createInput(target: InputTarget, options: InputOptions = {}): In
           actionPressed: edges.has('Space') || padActionEdge,
           // Front montant seulement : `edges` ignore l'auto-répétition, donc Maj maintenue ne rejoue pas.
           divePressed: edges.has('ShiftLeft') || edges.has('ShiftRight') || padDiveEdge,
+          aimPoint: null,
+          jumpCharge: 0.5,
+          tipPressed: false,
+          groundHitPressed: false,
         },
         pausePressed: edges.has('Escape') || padPauseEdge,
         debugPressed: edges.has('F1'),

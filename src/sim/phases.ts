@@ -159,7 +159,9 @@ function tossBall(s: GameState, server: PlayerState, cmd: Command): void {
   s.ball.pos = { ...hand };
   // Même arrondi que idealPressTick('serve') : un appui au resolveTick a un timing de 1.
   const apexTick = traj.startTick + Math.round(TUNING.tickRate * apexTime(traj));
-  server.pending = { gesture: 'toss', pressTick: s.tick, resolveTick: apexTick, quality: null, aim: { ...cmd.aim } };
+  server.pending = {
+    gesture: 'toss', pressTick: s.tick, resolveTick: apexTick, quality: null, aim: { ...cmd.aim }, tip: false, aimPoint: null,
+  };
 }
 
 /** 2e appui : frappe. Un raté laisse retomber le ballon (faute de service à l'atterrissage). */
@@ -241,7 +243,7 @@ function startJumpGesture(s: GameState, index: number, gesture: 'attack' | 'bloc
   const quality = evaluatePress(s, s.players[index]!.id, gesture)?.quality ?? null;
   const p = startJump(s.players[index]!, s.tick);
   const resolveTick = s.tick + (gesture === 'attack' ? jumpApexTicks() : jumpDurationTicks());
-  p.pending = { gesture, pressTick: s.tick, resolveTick, quality, aim: { ...cmd.aim } };
+  p.pending = { gesture, pressTick: s.tick, resolveTick, quality, aim: { ...cmd.aim }, tip: false, aimPoint: null };
   p.lockedUntilTick = s.tick + jumpDurationTicks();
   s.players[index] = p;
 }

@@ -4,13 +4,13 @@ import { jumpApexTicks } from '../../src/sim/player';
 import { initialScore, newRally } from '../../src/sim/rules';
 import {
   aimForward, attackTarget, blockSyncScore, contactPoint, deviate, evaluatePress, gestureFor,
-  idealPressTick, idealTarget, placementScore, qualityTier, serveTarget, timingScore,
+  groundHitTarget, idealPressTick, idealTarget, placementScore, qualityTier, serveTarget, timingScore,
 } from '../../src/sim/touch';
 import { TUNING } from '../../src/sim/tuning';
 import type { Command, GameState, PlayerState, TeamId, Trajectory, Vec2, Vec3 } from '../../src/sim/types';
 
 const R = TUNING.ball.radius;
-const NEUTRAL: Command = { move: { x: 0, z: 0 }, aim: { x: 0, z: 0 }, actionPressed: true, divePressed: false };
+const NEUTRAL: Command = { move: { x: 0, z: 0 }, aim: { x: 0, z: 0 }, actionPressed: true, divePressed: false, aimPoint: null, jumpCharge: 0.5, tipPressed: false, groundHitPressed: false };
 
 function cmd(aim: Vec2): Command {
   return { ...NEUTRAL, aim };
@@ -19,7 +19,7 @@ function cmd(aim: Vec2): Command {
 function makePlayer(id: number, team: TeamId, laneIndex: number, pos: Vec3): PlayerState {
   return {
     id, team, laneIndex, isHuman: id === 0, pos, vel: { x: 0, z: 0 }, facing: 0,
-    jumpStartTick: null, lockedUntilTick: 0, pending: null,
+    jumpStartTick: null, jumpHeight: 0.8, lockedUntilTick: 0, pending: null,
     dive: null, diveReadyTick: 0,
   };
 }
@@ -85,7 +85,7 @@ function serveState(withToss: boolean): GameState {
   });
   s.players[0]!.pos = { x: -2, y: 0, z: -9 };
   if (withToss) {
-    s.players[0]!.pending = { gesture: 'toss', pressTick: 0, resolveTick: 30, quality: null, aim: { x: 0, z: 0 } };
+    s.players[0]!.pending = { gesture: 'toss', pressTick: 0, resolveTick: 30, quality: null, aim: { x: 0, z: 0 }, tip: false, aimPoint: null };
   }
   return s;
 }
@@ -181,7 +181,7 @@ describe('gestureFor', () => {
       rally: { touchingTeam: 1, touches: 2, lastToucherId: 2 },
     });
     s.players[3]!.pos = { x: 1.2, y: 0, z: 1.2 };
-    s.players[3]!.pending = { gesture: 'attack', pressTick: 8, resolveTick: 32, quality: 1, aim: { x: 0, z: 0 } };
+    s.players[3]!.pending = { gesture: 'attack', pressTick: 8, resolveTick: 32, quality: 1, aim: { x: 0, z: 0 }, tip: false, aimPoint: null };
     s.players[0]!.pos = { x: 0.5, y: 0, z: -0.8 };
     expect(gestureFor(s, 0, NEUTRAL)).toBe('block');
     expect(idealPressTick(s, 0, 'block')).toBe(8);
@@ -445,5 +445,55 @@ describe('deviate', () => {
       const off = Math.hypot(d.target.x, d.target.z - 6 * (0.4 + 0.6 * q));
       expect(off).toBeLessThanOrEqual(radius + 1e-9);
     }
+  });
+});
+
+describe('frappe au sol (groundHit)', () => {
+  it('groundHitTarget sans point : centre du camp adverse à 5 m, temps de vol 1,2 s', () => {
+    const t0 = groundHitTarget(null, 0);
+    expect(t0.target).toEqual({ x: 0, y: R, z: 5 });
+    expect(t0.flightTime).toBe(1.2);
+    expect(groundHitTarget(null, 1).target.z).toBe(-5);
+  });
+
+  it('groundHitTarget borne x à ±3,6 et la profondeur à [3, 7,5]', () => {
+    expect(groundHitTarget({ x: 9, z: 1 }, 0).target).toEqual({ x: 3.6, y: R, z: 3 });
+    expect(groundHitTarget({ x: -1, z: 20 }, 0).target).toMatchObject({ x: -1, z: 7.5 });
+    expect(groundHitTarget({ x: 0, z: -2 }, 0).target.z).toBe(3); // propre camp
+    expect(groundHitTarget({ x: 0, z: -4 }, 1).target.z).toBe(-4);
+    expect(groundHitTarget({ x: -9, z: 5 }, 1).target.x).toBe(-3.6);
+  });
+
+  it('idealPressTick : le ballon descend à 2,0 m (±0,15)', () => {
+    const s = afterReception(HIGH_NEAR_NET);
+    const tick = idealPressTick(s, 0, 'groundHit')!;
+    expect(tick).not.toBeNull();
+    const t = secondsSince(HIGH_NEAR_NET, tick);
+    const before = positionAt(HIGH_NEAR_NET, t - 0.05);
+    const at = positionAt(HIGH_NEAR_NET, t);
+    expect(at.y).toBeGreaterThan(2.0 - 0.15);
+    expect(at.y).toBeLessThan(2.0 + 0.15);
+    expect(before.y).toBeGreaterThan(at.y);
+  });
+
+  it('idealTarget : la cible par défaut, sans passer par la visée', () => {
+    const s = afterReception(HIGH_NEAR_NET);
+    expect(idealTarget(s, 0, 'groundHit', { x: 1, z: -1 })).toEqual(groundHitTarget(null, 0));
+  });
+
+  it('deviate : q = 1 sans écart, q = 0 reste à ≤ 2,5 m (errorMax.reception)', () => {
+    const ideal = groundHitTarget(null, 0);
+    expect(deviate(ideal, 1, 'groundHit', 3).target).toEqual(ideal.target);
+    for (let seed = 1; seed <= 50; seed++) {
+      const d = deviate(ideal, 0, 'groundHit', seed);
+      const off = Math.hypot(d.target.x - ideal.target.x, d.target.z - ideal.target.z);
+      expect(off).toBeLessThanOrEqual(2.5 + 1e-9);
+    }
+  });
+
+  it('deviate : pas de facteur de profondeur (réservé à l attaque)', () => {
+    const ideal = groundHitTarget(null, 0);
+    const d = deviate(ideal, 0.5, 'groundHit', 5);
+    expect(Math.hypot(d.target.x, d.target.z - 5)).toBeLessThanOrEqual(0.5 * 2.5 + 1e-9);
   });
 });

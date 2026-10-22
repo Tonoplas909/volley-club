@@ -30,7 +30,7 @@ const ZERO: Vec2 = { x: 0, z: 0 };
 /** Commandes du tick : `id` joue `c`, les autres sont neutres. */
 function cmdsFor(id: number, c: Partial<Command>): Command[] {
   return Array.from({ length: 2 * CONFIG.playersPerTeam }, (_, i) => (i === id
-    ? { move: ZERO, aim: ZERO, actionPressed: false, divePressed: false, ...c }
+    ? { ...NEUTRAL_COMMAND, move: ZERO, aim: ZERO, actionPressed: false, divePressed: false, ...c }
     : NEUTRAL_COMMAND));
 }
 
@@ -304,7 +304,7 @@ describe('réception d urgence', () => {
     expect(diveIntent(before, 0, cmdsFor(0, DIVE(toBall))[0]!)).toEqual({ gesture: 'reception', ideal });
     const start = step(before, cmdsFor(0, DIVE(toBall)));
     const pending = start.players[0]!.pending;
-    expect(pending).toEqual({ gesture: 'dive', pressTick: ideal - SLIDE, resolveTick: ideal, quality: null, aim: ZERO });
+    expect(pending).toEqual({ gesture: 'dive', pressTick: ideal - SLIDE, resolveTick: ideal, quality: null, aim: ZERO, tip: false, aimPoint: null });
 
     const { state, events } = run(start, SLIDE);
     expect(state.tick).toBe(ideal);
@@ -424,7 +424,7 @@ describe('fin de point (vigilance 4)', () => {
 });
 
 describe('diveOpportunity (spec § 5)', () => {
-  const NEUTRAL: Command = { move: ZERO, aim: ZERO, actionPressed: false, divePressed: false };
+  const NEUTRAL: Command = { move: ZERO, aim: ZERO, actionPressed: false, divePressed: false, aimPoint: null, jumpCharge: 0.5, tipPressed: false, groundHitPressed: false };
 
   /**
    * Ballon adverse qui descend dans le couloir 0 ; joueur 0 placé à `d` m (vers son fond) du point de

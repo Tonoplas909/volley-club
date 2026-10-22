@@ -25,7 +25,7 @@ const CONFIG: MatchConfig = {
 /** Commandes où seul `id` appuie sur Action. */
 function press(id: number, aim: Vec2 = { x: 0, z: 0 }): Command[] {
   const cmds: Command[] = [];
-  cmds[id] = { move: { x: 0, z: 0 }, aim, actionPressed: true, divePressed: false };
+  cmds[id] = { move: { x: 0, z: 0 }, aim, actionPressed: true, divePressed: false, aimPoint: null, jumpCharge: 0.5, tipPressed: false, groundHitPressed: false };
   return Array.from({ length: id + 1 }, (_, i) => cmds[i] ?? NEUTRAL_COMMAND);
 }
 
@@ -131,6 +131,20 @@ describe('createInitialState', () => {
   });
 });
 
+describe('contrat Attaque v2', () => {
+  it('NEUTRAL_COMMAND : visée nulle, charge médiane, pas de feinte ni de frappe au sol', () => {
+    expect(NEUTRAL_COMMAND.aimPoint).toBeNull();
+    expect(NEUTRAL_COMMAND.jumpCharge).toBe(0.5);
+    expect(NEUTRAL_COMMAND.tipPressed).toBe(false);
+    expect(NEUTRAL_COMMAND.groundHitPressed).toBe(false);
+  });
+
+  it('tous les joueurs initiaux ont jumpHeight = 0,8', () => {
+    const s = createInitialState(CONFIG);
+    for (const p of s.players) expect(p.jumpHeight).toBe(0.8);
+  });
+});
+
 describe('placement', () => {
   it('après placementTicks steps neutres : phase serve, chaque joueur à sa startPosition', () => {
     const s0 = createInitialState(CONFIG);
@@ -145,7 +159,7 @@ describe('placement', () => {
 
   it('les commandes sont ignorées pendant le placement', () => {
     const s0 = createInitialState(CONFIG);
-    const pushing: Command = { move: { x: 1, z: 0 }, aim: { x: 0, z: 0 }, actionPressed: true, divePressed: false };
+    const pushing: Command = { move: { x: 1, z: 0 }, aim: { x: 0, z: 0 }, actionPressed: true, divePressed: false, aimPoint: null, jumpCharge: 0.5, tipPressed: false, groundHitPressed: false };
     const s = run(s0, 10, s0.players.map(() => pushing)).state;
     expect(s.events).toEqual([]);
     for (const p of s.players) expect(p.pos).toEqual(startPosition(s, p.id));
@@ -353,7 +367,7 @@ describe('contre', () => {
     p0.pos = { x: 0.2, y: 0, z: -0.5 };
     p0.jumpStartTick = jumpStart;
     p0.lockedUntilTick = jumpStart + 2 * jumpApexTicks();
-    p0.pending = { gesture: 'block', pressTick: jumpStart, resolveTick: jumpStart + 2 * jumpApexTicks(), quality, aim: { x: 0, z: 0 } };
+    p0.pending = { gesture: 'block', pressTick: jumpStart, resolveTick: jumpStart + 2 * jumpApexTicks(), quality, aim: { x: 0, z: 0 }, tip: false, aimPoint: null };
     return advanced;
   }
 
@@ -504,6 +518,10 @@ describe('pureté et robustesse', () => {
             aim: { x: b.value * 2 - 1, z: a.value * 2 - 1 },
             actionPressed: c.value < 0.08,
             divePressed: false,
+            aimPoint: null,
+            jumpCharge: 0.5,
+            tipPressed: false,
+            groundHitPressed: false,
           };
         });
         s = step(s, cmds);

@@ -64,6 +64,7 @@ describe('gestureLabel', () => {
     expect(gestureLabel('set', null)).toBe('PASSE');
     expect(gestureLabel('attack', null)).toBe('ATTAQUE');
     expect(gestureLabel('block', null)).toBe('CONTRE');
+    expect(gestureLabel('groundHit', null)).toBe('FRAPPE AU SOL');
   });
 
   it('distingue les deux temps du service', () => {

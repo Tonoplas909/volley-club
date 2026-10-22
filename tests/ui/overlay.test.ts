@@ -15,12 +15,12 @@ import {
 const R = TUNING.ball.radius;
 const HUMAN = 0;
 const TEAMMATE = 1;
-const NEUTRAL: Command = { move: { x: 0, z: 0 }, aim: { x: 0, z: 0 }, actionPressed: false, divePressed: false };
+const NEUTRAL: Command = { move: { x: 0, z: 0 }, aim: { x: 0, z: 0 }, actionPressed: false, divePressed: false, aimPoint: null, jumpCharge: 0.5, tipPressed: false, groundHitPressed: false };
 
 function makePlayer(id: number, team: TeamId, laneIndex: number, pos: Vec3): PlayerState {
   return {
     id, team, laneIndex, isHuman: id === HUMAN, pos, vel: { x: 0, z: 0 }, facing: 0,
-    jumpStartTick: null, lockedUntilTick: 0, pending: null,
+    jumpStartTick: null, jumpHeight: 0.8, lockedUntilTick: 0, pending: null,
     dive: null, diveReadyTick: 0,
   };
 }
@@ -190,7 +190,7 @@ describe('timingRing', () => {
         ? {
           ...p,
           pos: { x: -2, y: 0, z: -9 },
-          pending: { gesture: 'toss', pressTick: 0, resolveTick: 30, quality: null, aim: { x: 0, z: 0 } },
+          pending: { gesture: 'toss', pressTick: 0, resolveTick: 30, quality: null, aim: { x: 0, z: 0 }, tip: false, aimPoint: null },
         }
         : p)),
     };
@@ -214,7 +214,7 @@ function tossState(): GameState {
       ? {
         ...p,
         pos: { x: -2, y: 0, z: -9 },
-        pending: { gesture: 'toss', pressTick: 0, resolveTick: 30, quality: null, aim: { x: 0, z: 0 } },
+        pending: { gesture: 'toss', pressTick: 0, resolveTick: 30, quality: null, aim: { x: 0, z: 0 }, tip: false, aimPoint: null },
       }
       : p)),
   };

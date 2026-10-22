@@ -119,6 +119,7 @@ function poseFor(pending: PendingGesture | null, anim: Anim | undefined, time: n
   switch (anim.gesture) {
     case 'attack':
     case 'serve':
+    case 'groundHit':
       return age < STRIKE_SECONDS ? POSES.strike : POSES.idle;
     case 'reception':
       return age < HOLD_SECONDS ? POSES.reception : POSES.idle;

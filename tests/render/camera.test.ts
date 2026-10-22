@@ -25,7 +25,7 @@ describe('isHumanAttacking', () => {
   it('vrai dès que l\'humain a une attaque en cours', () => {
     const s = withTick(100);
     s.players = s.players.map((p) => p.id === 0
-      ? { ...p, pending: { gesture: 'attack', pressTick: 100, resolveTick: 124, quality: 1, aim: { x: 0, z: 1 } } }
+      ? { ...p, pending: { gesture: 'attack', pressTick: 100, resolveTick: 124, quality: 1, aim: { x: 0, z: 1 }, tip: false, aimPoint: null } }
       : p);
     expect(isHumanAttacking(s, 0)).toBe(true);
   });

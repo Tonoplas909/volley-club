@@ -17,6 +17,7 @@ function makePlayer(overrides: Partial<PlayerState> = {}): PlayerState {
     vel: { x: 0, z: 0 },
     facing: 0,
     jumpStartTick: null,
+    jumpHeight: 0.8,
     lockedUntilTick: 0,
     pending: null,
     dive: null,

@@ -5,6 +5,7 @@ import {
 } from './phases';
 import { rngNext } from './rng';
 import { initialScore, newRally } from './rules';
+import { TUNING } from './tuning';
 import type { Command, GameState, MatchConfig, PlayerState, TeamId } from './types';
 
 export const NEUTRAL_COMMAND: Command = Object.freeze({
@@ -12,6 +13,10 @@ export const NEUTRAL_COMMAND: Command = Object.freeze({
   aim: Object.freeze({ x: 0, z: 0 }),
   actionPressed: false,
   divePressed: false,
+  aimPoint: null,
+  jumpCharge: 0.5,
+  tipPressed: false,
+  groundHitPressed: false,
 });
 
 // ───────────────────────── état initial ─────────────────────────
@@ -27,7 +32,7 @@ export function createInitialState(config: MatchConfig): GameState {
       players.push({
         id, team, laneIndex: lane, isHuman: id === config.humanPlayerId,
         pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, z: 0 }, facing: facingNet(team),
-        jumpStartTick: null, lockedUntilTick: 0, pending: null,
+        jumpStartTick: null, jumpHeight: TUNING.player.jumpHeight, lockedUntilTick: 0, pending: null,
         dive: null, diveReadyTick: 0,
       });
     }

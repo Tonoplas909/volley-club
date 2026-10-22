@@ -8,6 +8,7 @@ import type {
 } from './types';
 
 const T = TUNING.touch;
+const A2 = TUNING.attack2;
 const BALL_RADIUS = TUNING.ball.radius;
 
 /** Constantes géométriques des cibles (mètres). */
@@ -22,6 +23,7 @@ const SERVE_DEPTH = { base: 5.5, perAim: 2, min: 2, max: 7.5 };
 const BLOCK_RETURN_DEPTH = 2;
 const ATTACKER_NEAR_NET_Z = 4;       // un adversaire à moins de 4 m du filet est un attaquant potentiel
 const ATTACK_DEPTH_KEPT_AT_ZERO = 0.4; // profondeur d'attaque conservée à q = 0 (0.4 + 0.6·q)
+const GROUND_HIT_DEFAULT_DEPTH = 5;  // frappe au sol sans point visé : centre du camp adverse
 
 export type TouchTarget = { target: Vec3; flightTime: number };
 export type AimedTarget = TouchTarget & { isTip: boolean };
@@ -143,6 +145,8 @@ export function idealPressTick(state: GameState, playerId: number, gesture: Gest
       const hitTick = tickAtHeightDescending(state, T.attackHitHeight);
       return hitTick === null ? null : hitTick - jumpApexTicks();
     }
+    case 'groundHit':
+      return tickAtHeightDescending(state, A2.groundHitHeight);
     case 'serve':
       return player.pending?.gesture === 'toss' ? toTick(state, apexTime(state.ball.traj)) : null;
     case 'block': {
@@ -265,6 +269,20 @@ export function attackTarget(attackerPos: Vec3, team: TeamId, aim: Vec2): AimedT
   };
 }
 
+/**
+ * Cible de la frappe pieds au sol (spec Attaque v2 § 7) : le point visé, avec x borné à ±aimMaxX et une
+ * profondeur dans [groundHitMinDepth, aimMaxDepth] côté adverse ; sans point, le centre du camp adverse à 5 m.
+ */
+export function groundHitTarget(aimPoint: Vec2 | null, team: TeamId): TouchTarget {
+  const s = sideOf(team);
+  if (aimPoint === null) {
+    return { target: { x: 0, y: BALL_RADIUS, z: -s * GROUND_HIT_DEFAULT_DEPTH }, flightTime: A2.groundHitFlightTime };
+  }
+  const x = clamp(aimPoint.x, -A2.aimMaxX, A2.aimMaxX);
+  const depth = clamp(-s * aimPoint.z, A2.groundHitMinDepth, A2.aimMaxDepth);
+  return { target: { x, y: BALL_RADIUS, z: -s * depth }, flightTime: A2.groundHitFlightTime };
+}
+
 /** Cible de service : la position du serveur n'influe pas, seule la visée compte. */
 export function serveTarget(_serverPos: Vec3, team: TeamId, aim: Vec2): AimedTarget {
   const f = aimForward(aim, team);
@@ -312,6 +330,8 @@ export function idealTarget(state: GameState, playerId: number, gesture: Gesture
       const { target, flightTime } = attackTarget(player.pos, player.team, aim);
       return { target, flightTime };
     }
+    case 'groundHit':
+      return groundHitTarget(null, player.team);
     case 'serve': {
       const { target, flightTime } = serveTarget(player.pos, player.team, aim);
       return { target, flightTime };
@@ -337,7 +357,9 @@ export function deviate(
   errorScale = 1,
 ): TouchTarget & { rng: number } {
   const miss = 1 - q;
-  const offset = rngInDisc(rng, miss * T.errorMax[gesture] * errorScale);
+  // La frappe au sol dévie comme une réception (Ruling 8) : pas de clé errorMax propre.
+  const errorMax = gesture === 'groundHit' ? T.errorMax.reception : T.errorMax[gesture];
+  const offset = rngInDisc(rng, miss * errorMax * errorScale);
   const u = rngRange(offset.state, -1, 1);
   const depthFactor = gesture === 'attack'
     ? ATTACK_DEPTH_KEPT_AT_ZERO + (1 - ATTACK_DEPTH_KEPT_AT_ZERO) * q

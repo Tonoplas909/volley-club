@@ -23,6 +23,13 @@ export const TUNING = {
     /** Au-dessus de 1/√2 : une diagonale clavier (0,707) ne transforme jamais la passe en attaque. */
     secondTouchAttackAimForward: 0.9,
   },
+  /** Attaque v2 : saut chargé, visée au point, feinte et frappe au sol (spec Attaque v2 § 10). */
+  attack2: {
+    jumpMin: 0.5, jumpMax: 1.1, chargeSeconds: 0.5, chargeHoldMaxSeconds: 1.5, powerGain: 0.25,
+    aimMaxX: 3.6, aimMinDepth: 1, aimMaxDepth: 7.5, tipMaxDepth: 3,
+    groundHitHeight: 2.0, groundHitMinDepth: 3, groundHitFlightTime: 1.2,
+    trajectoryOpacity: 0.35,
+  },
   match: { placementTicks: 90, pointScoredTicks: 120, setEndTicks: 180 },
   /**
    * blockLateralError : écart-type (m) de l'erreur latérale du contreur IA, tirée à chaque trajectoire,
