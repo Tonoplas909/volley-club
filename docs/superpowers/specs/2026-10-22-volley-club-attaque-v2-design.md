@@ -1,7 +1,7 @@
 # Volley Club — Design « Attaque v2 »
 
 - **Date :** 2026-10-22
-- **Statut :** validé en brainstorming, en attente de relecture de la spec
+- **Statut :** validé ; précisé par les décisions (Ruling) du plan `docs/superpowers/plans/2026-10-22-volley-club-attaque-v2.md`
 - **Base :** les specs V1, V1.1, Plongeon et Caméra 3e personne (`docs/superpowers/specs/`), plus la PR #4/#5 « la caméra monte pendant une attaque ». Ce qui n'est pas modifié ici reste valable.
 
 ## 1. Vision
@@ -88,7 +88,8 @@ export function aimPointFromView(humanPos: Vec2, team: TeamId, view: CameraView,
 - **Bornes** dans le camp adverse (`s = sideOf(team)`) :
   - `x` est borné à `±attack2.aimMaxX` (3,6) ;
   - la profondeur `d = −s · z` est bornée à `[attack2.aimMinDepth, attack2.aimMaxDepth]` (1 à 7,5 m).
-- Si le rayon ne coupe pas le sol (vue au-dessus de l'horizontale), ou le coupe dans le propre camp, la profondeur vaut `aimMaxDepth` ou `aimMinDepth` selon le côté, et `x` est l'abscisse d'intersection bornée (ou celle de l'humain s'il n'y a pas d'intersection).
+- Si le rayon coupe le sol dans le propre camp, la profondeur vaut `aimMinDepth`, et `x` est l'abscisse d'intersection bornée.
+- S'il ne coupe pas le sol (vue à l'horizontale ou au-dessus), la profondeur vaut `aimMaxDepth` si la direction horizontale de la vue va vers le camp adverse, sinon `aimMinDepth`. `x` est alors l'abscisse de l'humain bornée.
 - Lever la vue (diminuer `pitch`) éloigne le point, et tourner la vue le déplace latéralement.
 
 ### 4.2 Utilisation
@@ -118,19 +119,19 @@ export function aimPointFromView(humanPos: Vec2, team: TeamId, view: CameraView,
 - **Démarrage :** un appui Action démarre une **charge** au lieu d'un appui immédiat, si au moment de l'appui `humansBallGesture(curr, humanId, cmd) === 'attack'`. Sinon, l'appui est transmis tout de suite, comme aujourd'hui.
 - **Progression :** pendant la charge, `charge = min(1, heldTime / attack2.chargeSeconds)`, avec `chargeSeconds = 0,5` en temps réel. On maintient pour la faire monter.
 - **Relâchement :** au relâchement, ou si la charge reste pleine pendant `attack2.chargeHoldMaxSeconds` (1,5 s), la frame envoie `actionPressed: true` et `jumpCharge: charge` au step suivant. On passe par le verrou d'appui existant.
-- **Annulation :** si le geste attendu n'est plus `attack` pendant la charge (ballon touché par un autre, fin de l'échange), la charge est annulée et rien n'est envoyé. La pause gèle la charge, sans annulation.
+- **Annulation :** si le geste attendu n'est plus `attack` pendant la charge (ballon touché par un autre, fin de l'échange), la charge est annulée et rien n'est envoyé. Ce test, comme la commande envoyée au relâchement, utilise une visée forcée vers l'avant : en 2e touche, lâcher « avant » pendant la charge ne la change pas en passe. La pause gèle la charge, sans annulation.
 - **Entrée :** `InputFrame` gagne `actionHeld: boolean` (clic gauche, Espace ou A maintenu).
-- **État :** il est dans la session, `Session.charge: { startedAt: number; value: number } | null`. `HudView` gagne `charge: number | null`.
+- **État :** il est dans la session, `Session.charge: { held: number; value: number } | null`, où `held` est le temps réel maintenu hors pause (la pause le gèle). `HudView` gagne `charge: number | null`.
 
 ### 5.2 Côté simulation
 
-- **Hauteur :** `jumpHeightFor(charge) = jumpMin + charge · (jumpMax − jumpMin)`, avec `jumpMin = 0,5` et `jumpMax = 1,1`. Une charge de 0,5 donne 0,8 m, le saut actuel.
+- **Hauteur :** `jumpHeightFor(charge) = player.jumpHeight + (charge − 0,5) · (jumpMax − jumpMin)`, avec `jumpMin = 0,5` et `jumpMax = 1,1`, soit de 0,5 à 1,1 m. Une charge de 0,5 donne exactement 0,8 m, le saut actuel.
 - **Joueur :** `startJump(p, tick, height = TUNING.player.jumpHeight)` fixe `p.jumpHeight`. `jumpHeightAt` et la durée du saut utilisent `p.jumpHeight`.
 - `jumpApexTicks(height?)` et `jumpDurationTicks(height?)` prennent une hauteur facultative, avec la valeur actuelle par défaut.
 - **Attaque :**
   - la frappe a lieu au sommet du saut, `resolveTick = tick + jumpApexTicks(h)` ;
-  - la hauteur de contact vaut `standingReach + h` ;
-  - `idealPressTick(state, id, 'attack', charge?)` vaut le tick où le ballon descend à `standingReach + h`, moins `jumpApexTicks(h)`. La charge par défaut est 0,5, donc le comportement actuel est inchangé quand on ne passe pas de charge ;
+  - la hauteur de contact vaut `touch.attackHitHeight + (h − player.jumpHeight)`, soit 3,0 m pour le saut actuel ;
+  - `idealPressTick(state, id, 'attack', charge?)` vaut le tick où le ballon descend à cette hauteur de contact, moins `jumpApexTicks(h)`. La charge par défaut est 0,5, donc le comportement actuel est inchangé quand on ne passe pas de charge ;
   - `evaluatePress` reçoit la charge de la même façon.
 - **Puissance :** `flightTime.attack · (1 − attack2.powerGain · (h − 0,8) / (jumpMax − 0,8))` pour `h > 0,8`, avec `powerGain = 0,25`. On garde `flightTime.attack` pour `h ≤ 0,8`, ce qui ne donne pas de malus sous la charge médiane.
 - **Viabilité :** la condition « le ballon atteint `attackHitHeight` » de `gestureFor` reste la référence pour décider qu'une attaque est possible. Un saut trop haut pour un ballon bas donne un raté par la règle de timing habituelle.
