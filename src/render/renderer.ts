@@ -9,6 +9,7 @@ import { createMarkers } from './markers';
 import { createPlayers } from './players';
 import { createScene } from './scene';
 import { createShockwaves } from './shockwave';
+import { createTrajectoryHint } from './trajectoryHint';
 import { TUNING } from '../sim/tuning';
 
 export type Overlay = {
@@ -60,8 +61,9 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   const markers = createMarkers();
   const debug = createDebug();
   const shockwaves = createShockwaves();
+  const trajectoryHint = createTrajectoryHint();
   const rig = createCameraRig(canvas.clientWidth > 0 && canvas.clientHeight > 0 ? canvas.clientWidth / canvas.clientHeight : 16 / 9);
-  scene.add(players.group, ball.group, markers.group, debug.group, shockwaves.group);
+  scene.add(players.group, ball.group, markers.group, debug.group, shockwaves.group, trajectoryHint.group);
 
   let time = 0;
   let last: number | null = null;
@@ -94,13 +96,14 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
         players.positionOf,
       );
       debug.update(curr, overlay.debug, players.positionOf);
+      trajectoryHint.update(curr, overlay.humanId);
       // Cible : l'humain interpolé, à hauteur fixe (saut et plongeon ignorés). Sans humain, la caméra garde sa cible.
       const humanPos = overlay.humanId === null ? null : players.positionOf(overlay.humanId);
       if (humanPos) {
         cameraTarget.x = humanPos.x;
         cameraTarget.z = humanPos.z;
       }
-      rig.update(humanPos ? cameraTarget : null, overlay.view, isHumanAttacking(curr, overlay.humanId), dt, overlay.fx.shake);
+      rig.update(humanPos ? cameraTarget : null, overlay.view, isHumanAttacking(curr, overlay.humanId) || overlay.charging, dt, overlay.fx.shake);
       // Les ondes sont en temps réel (age) : elles se voient pendant l'arrêt sur image.
       shockwaves.update(overlay.fx.shockwaves, rig.camera);
       gl.render(scene, rig.camera);
@@ -115,6 +118,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       ball.dispose();
       markers.dispose();
       debug.dispose();
+      trajectoryHint.dispose();
       shockwaves.dispose();
       disposeScene();
       gl.dispose();
