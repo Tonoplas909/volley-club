@@ -29,8 +29,8 @@ export interface CameraRig {
    * fige pas pendant un gel. Le point visé est lissé (`camera.followSmoothing`), l'orientation
    * non. `shake` est ajouté à la position après coup, sans toucher au point visé. `target` nul
    * (pas d'humain) garde la dernière cible, ou une cible fixe à la première frame.
-   * `attacking` fait monter l'orbite et le point visé, le temps de voir par-dessus le filet
-   * (voir `isHumanAttacking`) ; la vue du joueur n'est pas modifiée.
+   * `attacking` fait monter le point visé (`attackTargetLift`), donc l'orbite, le temps de voir
+   * par-dessus le filet (voir `isHumanAttacking`) ; l'inclinaison du joueur n'est jamais modifiée.
    */
   update(target: Vec3 | null, view: CameraView, attacking: boolean, dt: number, shake: { x: number; y: number }): void;
   resize(aspect: number): void;
@@ -63,10 +63,8 @@ export function createCameraRig(aspect: number): CameraRig {
       lift = attacking ? Math.min(1, lift + step / C.attackRiseTime) : Math.max(0, lift - step / C.attackFallTime);
       // Courbe en S : le départ et l'arrivée de la montée restent doux.
       const e = lift * lift * (3 - 2 * lift);
-      // L'orbite ne monte que si le joueur regarde plus bas que `attackPitch` ; elle ne baisse jamais.
-      const pitch = view.pitch + (Math.max(view.pitch, C.attackPitch) - view.pitch) * e;
       look.set(smoothed.x, smoothed.y + C.attackTargetLift * e, smoothed.z);
-      const p = cameraPosition(look, { yaw: view.yaw, pitch });
+      const p = cameraPosition(look, view);
       // La vibration s'ajoute après le calcul de la position ; le plancher la rattrape près du sol.
       camera.position.set(p.x + shake.x, Math.max(C.minHeight, p.y + shake.y), p.z);
       camera.lookAt(look);

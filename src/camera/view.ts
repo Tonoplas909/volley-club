@@ -1,3 +1,4 @@
+import { sideOf } from '../sim/court';
 import { TUNING } from '../sim/tuning';
 import type { TeamId, Vec2, Vec3 } from '../sim/types';
 
@@ -56,5 +57,34 @@ export function cameraPosition(target: Vec3, view: CameraView): Vec3 {
     x: target.x - C.distance * cp * f.x,
     y: Math.max(C.minHeight, y),
     z: target.z - C.distance * cp * f.z,
+  };
+}
+
+/**
+ * Intersection de l'axe de la vue avec le sol, bornée au camp adverse (spec § 4.1).
+ * Le rayon va de la caméra (`cameraPosition` de la cible non lissée, avec la montée d'attaque si
+ * `attacking`) vers la cible. Sans intersection (vue à l'horizontale ou vers le haut), la profondeur
+ * vaut `aimMaxDepth` si la vue regarde vers le camp adverse, sinon `aimMinDepth` (Ruling 5).
+ */
+export function aimPointFromView(humanPos: Vec2, team: TeamId, view: CameraView, attacking: boolean): Vec2 {
+  const A = TUNING.attack2;
+  const s = sideOf(team);
+  const look: Vec3 = { x: humanPos.x, y: C.targetHeight + (attacking ? C.attackTargetLift : 0), z: humanPos.z };
+  const eye = cameraPosition(look, view);
+  const dy = look.y - eye.y;
+  let x = humanPos.x;
+  let depth: number;
+  const t = dy < -1e-9 ? eye.y / -dy : Number.NaN;
+  if (Number.isFinite(t)) {
+    x = eye.x + (look.x - eye.x) * t;
+    depth = -s * (eye.z + (look.z - eye.z) * t);
+  } else {
+    depth = forwardOf(view.yaw).z * -s > 0 ? A.aimMaxDepth : A.aimMinDepth;
+  }
+  if (!Number.isFinite(x)) x = humanPos.x;
+  if (!Number.isFinite(depth)) depth = A.aimMinDepth;
+  return {
+    x: clamp(x, -A.aimMaxX, A.aimMaxX),
+    z: -s * clamp(depth, A.aimMinDepth, A.aimMaxDepth),
   };
 }

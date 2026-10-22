@@ -77,7 +77,6 @@ export const TUNING = {
     followSmoothing: 10,        // 1/s
     maxMouseDeltaPx: 200,
     // Montée de la caméra pendant une attaque de l'humain (voir src/render/camera.ts).
-    attackPitch: 0.65,          // rad, inclinaison minimale de l'orbite à l'attaque
     attackTargetLift: 0.8,      // m, montée du point visé
     attackRiseTime: 0.3,        // s
     attackFallTime: 0.8,        // s

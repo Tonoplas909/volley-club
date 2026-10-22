@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { TUNING } from '../../src/sim/tuning';
 import {
-  NO_LOOK, cameraPosition, forwardOf, initialView, screenToWorld, updateView,
+  NO_LOOK, aimPointFromView, cameraPosition, forwardOf, initialView, screenToWorld, updateView,
   type CameraView, type LookInput,
 } from '../../src/camera/view';
 
@@ -145,5 +145,82 @@ describe('cameraPosition', () => {
     const p = cameraPosition({ x: 0, y: 1.4, z: 0 }, { yaw: -Math.PI / 2, pitch: 0 });
     expect(p.x).toBeCloseTo(4, 9);
     expect(p.z).toBeCloseTo(0, 9);
+  });
+});
+
+describe('aimPointFromView', () => {
+  const A = TUNING.attack2;
+  const facing = (pitch: number, yaw = 0): CameraView => ({ yaw, pitch });
+  const groundZ = (z0: number, targetY: number, pitch: number): number =>
+    z0 - 4 * Math.cos(pitch) + (targetY + 4 * Math.sin(pitch)) / Math.tan(pitch);
+
+  it('face au filet : coupe le sol devant le filet', () => {
+    const r = aimPointFromView({ x: 0, z: -2 }, 0, facing(0.26), false);
+    expect(r.x).toBeCloseTo(0, 9);
+    expect(r.z).toBeCloseTo(groundZ(-2, C.targetHeight, 0.26), 9);
+    expect(r.z).toBeCloseTo(3.26, 2);
+  });
+
+  it('à l\'attaque : la cible monte et le point s\'éloigne', () => {
+    const r = aimPointFromView({ x: 0, z: -2 }, 0, facing(0.26), true);
+    expect(r.x).toBeCloseTo(0, 9);
+    expect(r.z).toBeCloseTo(groundZ(-2, C.targetHeight + C.attackTargetLift, 0.26), 9);
+    expect(r.z).toBeCloseTo(6.27, 2);
+    expect(r.z).toBeGreaterThan(aimPointFromView({ x: 0, z: -2 }, 0, facing(0.26), false).z);
+  });
+
+  it('vue levée : profondeur bornée à aimMaxDepth', () => {
+    expect(aimPointFromView({ x: 0, z: -2 }, 0, facing(0.1), false).z).toBe(A.aimMaxDepth);
+  });
+
+  it('vue baissée : le sol est coupé dans le propre camp, profondeur aimMinDepth', () => {
+    expect(aimPointFromView({ x: 0, z: -2 }, 0, facing(0.79), false).z).toBe(A.aimMinDepth);
+  });
+
+  it('vue tournée à droite : x < 0, borné à aimMaxX', () => {
+    const r = aimPointFromView({ x: 0, z: -2 }, 0, { yaw: -0.3, pitch: 0.26 }, false);
+    expect(r.x).toBeLessThan(0);
+    expect(Math.abs(r.x)).toBeLessThanOrEqual(A.aimMaxX);
+  });
+
+  it('vue vers le ciel : aimMaxDepth vers l\'adversaire, aimMinDepth dans le dos', () => {
+    const up = aimPointFromView({ x: 1, z: -2 }, 0, facing(-0.17, 0), false);
+    expect(up.z).toBe(A.aimMaxDepth);
+    expect(up.x).toBe(1);
+    expect(aimPointFromView({ x: 0, z: -2 }, 0, facing(-0.17, Math.PI), false).z).toBe(A.aimMinDepth);
+  });
+
+  it('pitch = 0 exactement : résultat fini et dans les bornes', () => {
+    const r = aimPointFromView({ x: 0.5, z: -3 }, 0, facing(0), false);
+    expect(Number.isFinite(r.x) && Number.isFinite(r.z)).toBe(true);
+    expect(Math.abs(r.x)).toBeLessThanOrEqual(A.aimMaxX);
+    expect(-r.z).toBeGreaterThanOrEqual(-A.aimMaxDepth);
+    expect(r.z).toBeGreaterThanOrEqual(A.aimMinDepth);
+  });
+
+  it('équipe 1 : symétrique de l\'équipe 0', () => {
+    const r = aimPointFromView({ x: 0, z: 2 }, 1, { yaw: Math.PI, pitch: 0.26 }, false);
+    expect(Math.abs(r.x)).toBeCloseTo(0, 9);
+    expect(r.z).toBeCloseTo(-3.26, 2);
+  });
+
+  it('ne produit jamais de NaN et reste dans les bornes (200 combinaisons)', () => {
+    for (let i = 0; i < 200; i++) {
+      const u = (i * 0.6180339887) % 1;
+      const v = (i * 0.7548776662) % 1;
+      const w = (i * 0.5698402909) % 1;
+      const team = i % 2 === 0 ? 0 : 1;
+      const side = team === 0 ? -1 : 1;
+      const yaw = -Math.PI + u * 2 * Math.PI;
+      const pitch = C.pitchMin + v * (C.pitchMax - C.pitchMin);
+      const pos = { x: (w - 0.5) * 8, z: side * (0.5 + ((i * 0.3819660113) % 1) * 8) };
+      const r = aimPointFromView(pos, team, { yaw, pitch }, i % 3 === 0);
+      expect(Number.isFinite(r.x)).toBe(true);
+      expect(Number.isFinite(r.z)).toBe(true);
+      expect(Math.abs(r.x)).toBeLessThanOrEqual(A.aimMaxX);
+      const depth = -side * r.z;
+      expect(depth).toBeGreaterThanOrEqual(A.aimMinDepth);
+      expect(depth).toBeLessThanOrEqual(A.aimMaxDepth);
+    }
   });
 });
