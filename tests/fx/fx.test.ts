@@ -400,3 +400,28 @@ describe("fx : flash et onde de choc des attaques parfaites (spec § 6.1)", () =
     expect(f.shockwaves[0]!.age).toBeCloseTo(0.05, 6);
   });
 });
+
+describe('fx : frappe pieds au sol (Attaque v2 § 7)', () => {
+  it('groundHit parfaite : arrêt de hitStopMs.perfect, sans ralenti, flash, onde ni vibration', () => {
+    const fx = createFx({ humanId: 0 });
+    fx.onEvents([touch('groundHit', 'perfect', 1)], calm);
+    const ms = TUNING.fx.hitStopMs.perfect / 1000;
+    const frozen = fx.advance(ms - 0.01);
+    expect(frozen.timeScale).toBe(0);
+    expect(frozen.flash).toBe(0);
+    expect(frozen.shockwaves).toEqual([]);
+    expect(frozen.shake).toEqual({ x: 0, y: 0 });
+    const after = fx.advance(0.02);
+    expect(after.timeScale).toBe(1);
+    expect(after.flash).toBe(0);
+    expect(after.shockwaves).toEqual([]);
+    expect(after.shake).toEqual({ x: 0, y: 0 });
+  });
+
+  it('groundHit au palier ok : arrêt de hitStopMs.touch', () => {
+    const fx = createFx({ humanId: 0 });
+    fx.onEvents([touch('groundHit', 'ok')], calm);
+    expect(fx.advance(TUNING.fx.hitStopMs.touch / 1000 - 0.01).timeScale).toBe(0);
+    expect(fx.advance(0.02).timeScale).toBe(1);
+  });
+});

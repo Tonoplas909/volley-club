@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { apexTime, launchTo, positionAt, secondsSince } from '../../src/sim/ball';
+import { apexTime, launchTo, maxHeight, positionAt, secondsSince, timeToHeightDescending } from '../../src/sim/ball';
 import { jumpApexTicks } from '../../src/sim/player';
 import { initialScore, newRally } from '../../src/sim/rules';
 import {
-  aimForward, attackTarget, blockSyncScore, contactPoint, deviate, evaluatePress, gestureFor,
-  groundHitTarget, idealPressTick, idealTarget, placementScore, qualityTier, serveTarget, timingScore,
+  aimForward, attackFlightTime, attackTarget, blockSyncScore, contactPoint, deviate, evaluatePress, gestureFor,
+  groundHitTarget, idealPressTick, idealTarget, placementScore, pressDistance, pressPosition, qualityTier,
+  serveTarget, strikeTarget, timingScore,
 } from '../../src/sim/touch';
 import { TUNING } from '../../src/sim/tuning';
 import type { Command, GameState, PlayerState, TeamId, Trajectory, Vec2, Vec3 } from '../../src/sim/types';
@@ -495,5 +496,133 @@ describe('frappe au sol (groundHit)', () => {
     const ideal = groundHitTarget(null, 0);
     const d = deviate(ideal, 0.5, 'groundHit', 5);
     expect(Math.hypot(d.target.x, d.target.z - 5)).toBeLessThanOrEqual(0.5 * 2.5 + 1e-9);
+  });
+});
+
+describe('attaque chargée (Attaque v2 § 5.2)', () => {
+  const base = (): GameState => afterReception(HIGH_NEAR_NET, 2);
+  const descTick = (traj: Trajectory, h: number): number =>
+    traj.startTick + Math.round(TUNING.tickRate * timeToHeightDescending(traj, h)!);
+
+  it('charge par défaut : idealPressTick identique à 0,5 et à la valeur actuelle (descente à 3,0 m − 24)', () => {
+    const s = base();
+    const ideal = idealPressTick(s, 1, 'attack');
+    expect(ideal).toBe(idealPressTick(s, 1, 'attack', 0.5));
+    expect(ideal).toBe(descTick(HIGH_NEAR_NET, 3.0) - 24);
+    expect(contactPoint(s, 1, 'attack')).toEqual(contactPoint(s, 1, 'attack', 0.5));
+    expect(pressPosition(s, 1, 'attack')).toEqual(pressPosition(s, 1, 'attack', 0.5));
+    expect(pressDistance(s, 1, 'attack')).toBe(pressDistance(s, 1, 'attack', 0.5));
+    const at = { ...s, tick: ideal! };
+    expect(evaluatePress(at, 1, 'attack')).toEqual(evaluatePress(at, 1, 'attack', 0.5));
+  });
+
+  it('charge 1 : descente à 3,3 m − 28 ; contact pris au sommet du saut de 1,1 m', () => {
+    const s = base();
+    const ideal = idealPressTick(s, 1, 'attack', 1)!;
+    expect(ideal).toBe(descTick(HIGH_NEAR_NET, 3.3) - 28);
+    const hit = positionAt(HIGH_NEAR_NET, secondsSince(HIGH_NEAR_NET, ideal + 28));
+    expect(Math.abs(hit.y - 3.3)).toBeLessThan(0.15);
+    const cp = contactPoint(s, 1, 'attack', 1)!;
+    expect(cp.x).toBeCloseTo(hit.x, 9);
+    expect(cp.z).toBeCloseTo(hit.z, 9);
+  });
+
+  it('charge 1 : evaluatePress projette la position sur la montée du saut de 1,1 m', () => {
+    const s = base();
+    s.tick = idealPressTick(s, 1, 'attack', 1)!;
+    const cp = contactPoint(s, 1, 'attack', 1)!;
+    const vx = 1.5;
+    s.players[1]!.vel = { x: vx, z: 0 };
+    s.players[1]!.pos = { x: cp.x - (vx * 28) / 60, y: 0, z: cp.z };
+    expect(pressPosition(s, 1, 'attack', 1)!.x).toBeCloseTo(cp.x, 9);
+    expect(evaluatePress(s, 1, 'attack', 1)?.quality).toBeCloseTo(1, 9);
+  });
+
+  it('ballon dont le sommet est sous 3,3 m : null à charge 1, possible à charge 0,5', () => {
+    const lowish = launchTo({ x: -2, y: 0.8, z: -5 }, { x: 0.5, y: R, z: -1 }, 1.5, 0);
+    const top = maxHeight(lowish);
+    expect(top).toBeGreaterThan(3.0);
+    expect(top).toBeLessThan(3.3);
+    const s = afterReception(lowish, 2);
+    s.tick = 0;
+    expect(idealPressTick(s, 1, 'attack', 1)).toBeNull();
+    expect(contactPoint(s, 1, 'attack', 1)).toBeNull();
+    expect(evaluatePress(s, 1, 'attack', 1)).toBeNull();
+    expect(idealPressTick(s, 1, 'attack')).not.toBeNull();
+  });
+
+  it('attackFlightTime : 0,6 jusqu à 0,8 m, puis plus rapide jusqu à 0,45 s à 1,1 m', () => {
+    expect(attackFlightTime(0.5)).toBe(0.6);
+    expect(attackFlightTime(0.8)).toBe(0.6);
+    expect(attackFlightTime(0.95)).toBeCloseTo(0.525, 9);
+    expect(attackFlightTime(1.1)).toBeCloseTo(0.45, 9);
+  });
+});
+
+describe('strikeTarget (visée par point et feinte, Attaque v2 § 4.2 et § 6)', () => {
+  const attacker = (team: TeamId, jumpHeight = 0.8): PlayerState => ({
+    ...makePlayer(0, team, 0, { x: 0.5, y: 0, z: team === 0 ? -1 : 1 }), jumpHeight,
+  });
+  const ZERO = { x: 0, z: 0 };
+
+  it('point visé dans le camp adverse : cible au point, temps de vol de l attaque', () => {
+    const t = strikeTarget(attacker(0), ZERO, { x: 1, z: 5 }, false);
+    expect(t.target).toEqual({ x: 1, y: R, z: 5 });
+    expect(t.flightTime).toBe(0.6);
+  });
+
+  it('bornes : x à ±3,6, profondeur dans [1, 7,5] ; propre camp ramené à 1 m', () => {
+    expect(strikeTarget(attacker(0), ZERO, { x: 9, z: 20 }, false).target).toMatchObject({ x: 3.6, z: 7.5 });
+    expect(strikeTarget(attacker(0), ZERO, { x: -9, z: 3 }, false).target.x).toBe(-3.6);
+    expect(strikeTarget(attacker(0), ZERO, { x: 0, z: -3 }, false).target.z).toBe(1);
+  });
+
+  it('feinte avec un point : profondeur ≤ 3 m, temps de vol 1,0', () => {
+    const t = strikeTarget(attacker(0), ZERO, { x: 0, z: 6 }, true);
+    expect(t.target.z).toBe(3);
+    expect(t.flightTime).toBe(1.0);
+  });
+
+  it('feinte sans point, visée neutre : feinte actuelle à 2 m, temps de vol 1,0', () => {
+    const t = strikeTarget(attacker(0), ZERO, null, true);
+    expect(t.target.z).toBeCloseTo(2, 9);
+    expect(t.flightTime).toBe(1.0);
+  });
+
+  it('équipe 1 : point (0, −5) visé à z = −5', () => {
+    expect(strikeTarget(attacker(1), ZERO, { x: 0, z: -5 }, false).target.z).toBe(-5);
+  });
+
+  it('sans point ni feinte : attackTarget actuel, y compris la feinte par la visée arrière', () => {
+    const a = attacker(0);
+    for (const aim of [ZERO, { x: 0.5, z: 1 }, { x: -1, z: 0 }, { x: 0, z: -1 }]) {
+      const expected = attackTarget(a.pos, 0, aim);
+      const t = strikeTarget(a, aim, null, false);
+      expect(t.target).toEqual(expected.target);
+      expect(t.flightTime).toBe(expected.flightTime);
+    }
+  });
+
+  it('puissance : le temps de vol suit la hauteur du saut, sauf pour la feinte', () => {
+    expect(strikeTarget(attacker(0, 1.1), ZERO, { x: 0, z: 5 }, false).flightTime).toBeCloseTo(0.45, 9);
+    expect(strikeTarget(attacker(0, 1.1), ZERO, null, false).flightTime).toBeCloseTo(0.45, 9);
+    expect(strikeTarget(attacker(0, 1.1), { x: 0, z: -1 }, null, false).flightTime).toBe(1.0);
+    expect(strikeTarget(attacker(0, 1.1), ZERO, { x: 0, z: 5 }, true).flightTime).toBe(1.0);
+  });
+
+  it('attackTarget avec forceTip : feinte actuelle, quelle que soit la visée', () => {
+    const t = attackTarget({ x: 0, y: 3, z: -1 }, 0, { x: 0, z: 1 }, true);
+    expect(t.isTip).toBe(true);
+    expect(t.target.z).toBeCloseTo(2, 9);
+    expect(t.flightTime).toBe(TUNING.touch.flightTime.tip);
+  });
+
+  it('idealTarget(attack) vaut strikeTarget sans point ni feinte, identique à attackTarget pour h = 0,8', () => {
+    const s = afterReception(HIGH_NEAR_NET, 2);
+    for (const aim of [ZERO, { x: 1, z: 0.5 }, { x: 0, z: -1 }]) {
+      const expected = attackTarget(s.players[1]!.pos, 0, aim);
+      expect(idealTarget(s, 1, 'attack', aim)).toEqual({ target: expected.target, flightTime: expected.flightTime });
+      expect(idealTarget(s, 1, 'attack', aim)).toEqual(strikeTarget(s.players[1]!, aim, null, false));
+    }
   });
 });

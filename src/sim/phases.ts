@@ -2,12 +2,14 @@
 import { apexTime, launchTo, maxHeight, positionAt, secondsSince } from './ball';
 import { currentServerId, sideOf, startPosition, teamPlayers } from './court';
 import { advancePlayer, beginDive, canStartDive, diveQuality, diveTarget, pendingDiveGesture, playedGesture } from './dive';
-import { jumpApexTicks, jumpDurationTicks, jumpHeightAt, movePlayer, startJump } from './player';
+import { jumpApexTicks, jumpDurationTicks, jumpHeightAt, jumpHeightFor, movePlayer, startJump } from './player';
 import { rngRange } from './rng';
 import {
   awardPoint, judgeAntenna, judgeLanding, newRally, registerTouch, setsToWin,
 } from './rules';
-import { deviate, evaluatePress, gestureFor, idealTarget, qualityTier, type TouchTarget } from './touch';
+import {
+  deviate, evaluatePress, gestureFor, groundHitTarget, idealTarget, qualityTier, strikeTarget, type TouchTarget,
+} from './touch';
 import { TUNING } from './tuning';
 import type {
   Command, GameState, Gesture, MatchPhase, PlayerState, PointReason, TeamId,
@@ -23,6 +25,8 @@ const HAND_HEIGHT = 1.0;          // main du serveur au-dessus de ses pieds
 const ARRIVE_RADIUS = 0.05;       // placement : le joueur s'arrête à moins de 5 cm de sa position
 const SOFT_BLOCK_DEPTH = 2;       // contre de faible qualité : retombe à 2 m du filet, côté contreur
 const TOSS_BISECTION_ITERATIONS = 50;
+/** Charge médiane du saut d'attaque (saut de jumpHeight) : feinte au bouton et IA. */
+const MEDIAN_CHARGE = 0.5;
 
 /** Commande du joueur d'id donné pour ce tick (neutre si absente). */
 export type CommandOf = (playerId: number) => Command;
@@ -187,7 +191,7 @@ export function stepRally(s: GameState, cmdOf: CommandOf): void {
   s.ball.pos = ballPosAt(s.ball.traj, s.tick);
 
   for (let i = 0; i < s.players.length && s.phase === 'rally'; i++) actPlayer(s, i, cmdOf);
-  if (s.phase === 'rally') resolvePendingAttacks(s);
+  if (s.phase === 'rally') resolvePendingAttacks(s, cmdOf);
   if (s.phase === 'rally') resolvePendingDives(s);
   if (s.phase === 'rally') moveBall(s, previousPos);
   if (s.phase === 'rally' && s.ball.pos.y <= BALL_RADIUS) {
@@ -203,7 +207,12 @@ function actPlayer(s: GameState, index: number, cmdOf: CommandOf): void {
   if (p.pending?.gesture === 'block' && s.tick >= p.pending.resolveTick) p.pending = null; // saut terminé
   s.players[index] = p;
 
-  const gesture = cmd.actionPressed ? gestureFor(s, p.id, cmd) : null;
+  // Geste possible à ce tick, calculé seulement si un bouton de geste est appuyé.
+  const available = cmd.actionPressed || cmd.tipPressed || cmd.groundHitPressed ? gestureFor(s, p.id, cmd) : null;
+  // Priorité dans un même tick (Ruling 6) : Action, puis feinte, puis frappe au sol, puis plongeon.
+  // Un bouton ignoré ne consomme rien (ni verrou ni recharge du plongeon).
+  const gesture = cmd.actionPressed ? available : null;
+  let played = gesture !== null;
   switch (gesture) {
     case 'reception':
     case 'set':
@@ -216,8 +225,17 @@ function actPlayer(s: GameState, index: number, cmdOf: CommandOf): void {
     default:
       break; // appui ignoré (aucun geste, ou service hors phase serve)
   }
-  // Plongeon : seulement si l'appui Action n'a produit aucun geste à ce tick (Action prioritaire).
-  if (gesture === null && cmd.divePressed && canStartDive(s, p.id)) {
+  // Feinte et frappe au sol : seulement quand le geste attendu est une attaque (spec § 6, § 7, vigilance 6).
+  if (!played && available === 'attack') {
+    if (cmd.tipPressed) {
+      startJumpGesture(s, index, 'attack', cmd, true);
+      played = true;
+    } else if (cmd.groundHitPressed) {
+      playGroundHit(s, p, cmd);
+      played = true;
+    }
+  }
+  if (!played && cmd.divePressed && canStartDive(s, p.id)) {
     s.players[index] = beginDive(s, p.id, cmd);
     s.events.push({ type: 'dive', playerId: p.id });
   }
@@ -235,20 +253,49 @@ function playContact(s: GameState, p: PlayerState, gesture: 'reception' | 'set',
   applyTouch(s, p, gesture, ev.quality, deviated(s, idealTarget(s, p.id, gesture, cmd.aim), ev.quality, gesture));
 }
 
+/** Frappe pieds au sol (spec Attaque v2 § 7) : geste immédiat, sans saut, jugé comme une réception. */
+function playGroundHit(s: GameState, p: PlayerState, cmd: Command): void {
+  const ev = evaluatePress(s, p.id, 'groundHit');
+  p.lockedUntilTick = s.tick + T.lockTicks;
+  if (!ev) {
+    s.events.push({ type: 'whiff', playerId: p.id, gesture: 'groundHit' });
+    return;
+  }
+  if (!countTouch(s, p)) return;
+  applyTouch(s, p, 'groundHit', ev.quality, deviated(s, groundHitTarget(cmd.aimPoint, p.team), ev.quality, 'groundHit'));
+}
+
 /**
  * Attaque ou contre : saut, puis geste en attente. L'attaque frappe au sommet du saut (resolveTick) ;
  * le contre se résout à l'interception au filet, et son resolveTick marque seulement la fin du saut.
+ * Attaque : la hauteur du saut vient de cmd.jumpCharge, sauf pour une feinte (`tip`), qui saute à la
+ * hauteur médiane (jumpHeightFor(0.5) = jumpHeight, Ruling 1). Le contre garde la hauteur par défaut.
  */
-function startJumpGesture(s: GameState, index: number, gesture: 'attack' | 'block', cmd: Command): void {
-  const quality = evaluatePress(s, s.players[index]!.id, gesture)?.quality ?? null;
-  const p = startJump(s.players[index]!, s.tick);
-  const resolveTick = s.tick + (gesture === 'attack' ? jumpApexTicks() : jumpDurationTicks());
-  p.pending = { gesture, pressTick: s.tick, resolveTick, quality, aim: { ...cmd.aim }, tip: false, aimPoint: null };
-  p.lockedUntilTick = s.tick + jumpDurationTicks();
+function startJumpGesture(s: GameState, index: number, gesture: 'attack' | 'block', cmd: Command, tip = false): void {
+  const attack = gesture === 'attack';
+  const charge = attack && !tip ? cmd.jumpCharge : MEDIAN_CHARGE;
+  const h = attack ? jumpHeightFor(charge) : TUNING.player.jumpHeight;
+  const quality = evaluatePress(s, s.players[index]!.id, gesture, charge)?.quality ?? null;
+  const p = startJump(s.players[index]!, s.tick, h);
+  const resolveTick = s.tick + (attack ? jumpApexTicks(h) : jumpDurationTicks(h));
+  p.pending = {
+    gesture,
+    pressTick: s.tick,
+    resolveTick,
+    quality,
+    aim: { ...cmd.aim },
+    tip: attack && tip,
+    aimPoint: attack && cmd.aimPoint ? { ...cmd.aimPoint } : null,
+  };
+  p.lockedUntilTick = s.tick + jumpDurationTicks(h);
   s.players[index] = p;
 }
 
-function resolvePendingAttacks(s: GameState): void {
+/**
+ * Attaques en attente, frappées au sommet du saut. Le point visé est celui de la commande du tick de
+ * frappe, ou à défaut celui de l'appui (spec Attaque v2 § 4.2).
+ */
+function resolvePendingAttacks(s: GameState, cmdOf: CommandOf): void {
   for (const p of s.players) {
     const pending = p.pending;
     if (pending?.gesture !== 'attack' || s.tick < pending.resolveTick) continue;
@@ -260,7 +307,7 @@ function resolvePendingAttacks(s: GameState): void {
       continue;
     }
     if (!countTouch(s, p)) return;
-    const ideal = idealTarget(s, p.id, 'attack', pending.aim);
+    const ideal = strikeTarget(p, pending.aim, cmdOf(p.id).aimPoint ?? pending.aimPoint, pending.tip);
     applyTouch(s, p, 'attack', pending.quality, deviated(s, ideal, pending.quality, 'attack'));
   }
 }

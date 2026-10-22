@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  canAct, isAirborne, jumpApexTicks, jumpDurationTicks, jumpHeightAt, movePlayer, startJump,
+  canAct, isAirborne, jumpApexTicks, jumpDurationTicks, jumpHeightAt, jumpHeightFor, movePlayer, startJump,
 } from '../../src/sim/player';
 import { TUNING } from '../../src/sim/tuning';
 import type { PlayerState } from '../../src/sim/types';
@@ -162,5 +162,46 @@ describe('saut', () => {
   it('startJump ne lance pas de saut quand le joueur ne peut pas agir', () => {
     const p = makePlayer({ lockedUntilTick: 20 });
     expect(startJump(p, 5).jumpStartTick).toBeNull();
+  });
+});
+
+describe('saut de hauteur variable (Attaque v2 § 5.2)', () => {
+  it('jumpHeightFor : 0,5 donne exactement 0,8 ; bornes 0,5 et 1,1 ; NaN ramené à 0,8', () => {
+    expect(jumpHeightFor(0.5)).toBe(0.8);
+    expect(jumpHeightFor(0.5)).toBe(TUNING.player.jumpHeight);
+    expect(jumpHeightFor(0)).toBeCloseTo(0.5, 12);
+    expect(jumpHeightFor(1)).toBeCloseTo(1.1, 12);
+    expect(jumpHeightFor(2)).toBeCloseTo(1.1, 12);
+    expect(jumpHeightFor(-1)).toBeCloseTo(0.5, 12);
+    expect(jumpHeightFor(Number.NaN)).toBe(0.8);
+    expect(jumpHeightFor(Number.POSITIVE_INFINITY)).toBe(0.8);
+  });
+
+  it('jumpApexTicks selon la hauteur : 24 par défaut, 28 pour 1,1, 19 pour 0,5', () => {
+    expect(jumpApexTicks()).toBe(24);
+    expect(jumpApexTicks(TUNING.player.jumpHeight)).toBe(24);
+    expect(jumpApexTicks(1.1)).toBe(28);
+    expect(jumpApexTicks(0.5)).toBe(19);
+    expect(jumpDurationTicks(1.1)).toBe(56);
+    expect(jumpDurationTicks()).toBe(48);
+  });
+
+  it('startJump avec une hauteur : jumpHeight fixé, sommet à 1,1, en l air jusqu au tick 10 + 56 exclu', () => {
+    const p = startJump(makePlayer(), 10, 1.1);
+    expect(p.jumpHeight).toBe(1.1);
+    expect(Math.abs(jumpHeightAt(p, 10 + jumpApexTicks(1.1)) - 1.1)).toBeLessThan(0.02);
+    expect(isAirborne(p, 10 + 55)).toBe(true);
+    expect(isAirborne(p, 10 + 56)).toBe(false);
+    expect(jumpHeightAt(p, 10 + 56)).toBe(0);
+    // movePlayer termine le saut à la durée de ce saut, pas à celle du saut par défaut.
+    const mid = movePlayer(p, { x: 0, z: 0 }, 10 + 50);
+    expect(mid.jumpStartTick).toBe(10);
+    expect(mid.pos.y).toBeGreaterThan(0);
+    expect(movePlayer(p, { x: 0, z: 0 }, 10 + 56).jumpStartTick).toBeNull();
+  });
+
+  it('startJump sans hauteur remet la hauteur par défaut ; sans saut possible, jumpHeight ne change pas', () => {
+    expect(startJump(makePlayer({ jumpHeight: 1.1 }), 0).jumpHeight).toBe(0.8);
+    expect(startJump(makePlayer({ lockedUntilTick: 20 }), 5, 1.1).jumpHeight).toBe(0.8);
   });
 });
