@@ -96,6 +96,7 @@ export function aimPointFromView(humanPos: Vec2, team: TeamId, view: CameraView,
 
 - `src/frame.ts` remplit `aimPoint = aimPointFromView(...)` dans la commande humaine **à chaque step**, quand `expectedGesture` vaut `attack` (l'attaque, la feinte ou la frappe au sol sont alors possibles), quand une charge est en cours, ou quand l'humain a un `pending` d'attaque ou de feinte. Sinon, `aimPoint = null`.
 - **Simulation :** pour l'attaque, la feinte et la frappe au sol, si `aimPoint` n'est pas nul, la cible idéale est `aimPoint`, sans passer par `aim`. On applique les bornes, puis la déviation de qualité habituelle.
+- **Passage du filet (revue finale, I2) :** pour l'attaque (pas la feinte) et la frappe au sol visées par un point, la borne basse de la profondeur est relevée à la plus petite profondeur dont la trajectoire, lancée depuis la position du ballon à la frappe, passe le filet (centre du ballon à `netHeight` + rayon). Si aucune ne passe, la profondeur vaut `aimMaxDepth`. La cible affichée de l'attaque applique la même borne depuis un contact estimé (position de l'humain, hauteur de contact du saut de la charge courante, 0,5 par défaut).
 - **Point visé à la frappe :** pour une attaque ou une feinte, c'est le `aimPoint` **de la commande du tick de résolution** (la frappe) qui compte. Le `pending` garde l'`aimPoint` de l'appui en secours, si la commande du tick de frappe n'en a pas.
 - **Choix passe ou attaque :** en 2e touche, il continue de dépendre de `aim` (la direction de déplacement convertie, `aimForward ≥ 0,9`). C'est la règle actuelle, inchangée.
 
@@ -104,7 +105,7 @@ export function aimPointFromView(humanPos: Vec2, team: TeamId, view: CameraView,
 - Pendant une attaque de l'humain, l'orbite **n'est plus forcée** à `attackPitch`.
 - La montée du point visé (`attackTargetLift`) est conservée, avec ses temps de montée et de retour. L'inclinaison reste celle choisie par le joueur.
 - `TUNING.camera.attackPitch` est supprimé, ainsi que son usage dans `src/render/camera.ts`. Le test associé est mis à jour.
-- `isHumanAttacking` couvre aussi la charge en cours et la feinte, pour que la montée commence dès que l'on charge.
+- La montée s'applique dès que l'attaque est le geste attendu de l'humain (comme le viseur, § 4.4), puis pendant la charge, son envoi et le saut d'attaque ou de feinte. La frame transmet cette valeur au rendu (`Overlay.attacking`), et c'est la même `attacking` qui sert à `aimPointFromView` : la cible ne saute pas quand la charge démarre (revue finale, I1).
 
 ### 4.4 Viseur
 
@@ -119,7 +120,7 @@ export function aimPointFromView(humanPos: Vec2, team: TeamId, view: CameraView,
 - **Démarrage :** un appui Action démarre une **charge** au lieu d'un appui immédiat, si au moment de l'appui `humansBallGesture(curr, humanId, cmd) === 'attack'`. Sinon, l'appui est transmis tout de suite, comme aujourd'hui.
 - **Progression :** pendant la charge, `charge = min(1, heldTime / attack2.chargeSeconds)`, avec `chargeSeconds = 0,5` en temps réel. On maintient pour la faire monter.
 - **Relâchement :** au relâchement, ou si la charge reste pleine pendant `attack2.chargeHoldMaxSeconds` (1,5 s), la frame envoie `actionPressed: true` et `jumpCharge: charge` au step suivant. On passe par le verrou d'appui existant.
-- **Annulation :** si le geste attendu n'est plus `attack` pendant la charge (ballon touché par un autre, fin de l'échange), la charge est annulée et rien n'est envoyé. Ce test, comme la commande envoyée au relâchement, utilise une visée forcée vers l'avant : en 2e touche, lâcher « avant » pendant la charge ne la change pas en passe. La pause gèle la charge, sans annulation.
+- **Annulation :** si le geste attendu n'est plus `attack` pendant la charge (ballon touché par un autre, fin de l'échange), la charge est annulée et rien n'est envoyé. Ce test, comme la commande envoyée au relâchement, utilise une visée forcée vers l'avant : en 2e touche, lâcher « avant » pendant la charge ne la change pas en passe. La pause gèle la charge, sans annulation. Une charge déjà relâchée mais pas encore envoyée garde son envoi à travers la pause : elle part au premier step après la reprise.
 - **Entrée :** `InputFrame` gagne `actionHeld: boolean` (clic gauche, Espace ou A maintenu).
 - **État :** il est dans la session, `Session.charge: { held: number; value: number } | null`, où `held` est le temps réel maintenu hors pause (la pause le gèle). `HudView` gagne `charge: number | null`.
 
@@ -151,7 +152,7 @@ export function aimPointFromView(humanPos: Vec2, team: TeamId, view: CameraView,
 - Elle est possible quand le geste attendu serait une attaque.
 - **Exécution :** c'est un geste **immédiat**, comme la réception, sans saut. Son instant idéal est le tick où le ballon descend à `attack2.groundHitHeight` (2,0 m), et le point de contact est la position du ballon à ce moment.
 - **Qualité :** placement et timing, comme une réception (`placementScore`, `timingScore`).
-- **Cible :** `aimPoint` si présent, avec une profondeur ramenée dans `[attack2.groundHitMinDepth (3), aimMaxDepth]`. Sinon, le centre du camp adverse à 5 m. Le temps de vol est `attack2.groundHitFlightTime` (1,2 s), et la déviation utilise `errorMax.reception`.
+- **Cible :** `aimPoint` si présent, avec une profondeur ramenée dans `[attack2.groundHitMinDepth (3), aimMaxDepth]`, borne basse relevée pour passer le filet (§ 4.2). Sinon, le centre du camp adverse à 5 m. Le temps de vol est `attack2.groundHitFlightTime` (1,2 s), et la déviation utilise `errorMax.reception`.
 - **Événement :** `touch` avec le geste `groundHit`.
 - **Effets :** l'arrêt sur image vaut `touch` ou `perfect` selon le palier. Il n'y a jamais de flash, ni de ralenti d'attaque parfaite, ni d'onde de choc.
 - **Après la touche :** verrou `lockTicks`, comme pour une réception.
@@ -185,7 +186,7 @@ attack2: {
 
 1. **Non-régression IA et scénarios :** une charge de 0,5 et un `aimPoint` nul donnent exactement les sauts, les cibles et le timing actuels. Les scores des seeds IA contre IA sont identiques.
 2. **Clic sans capture :** un clic gauche alors que la souris n'est pas capturée ne déclenche jamais d'action de jeu. Il capture ou reprend.
-3. **Charge et pause :** la pause gèle la charge, et la reprise la continue. La charge ne se déclenche jamais pendant la pause.
+3. **Charge et pause :** la pause gèle la charge, et la reprise la continue. La charge ne se déclenche jamais pendant la pause. Une charge relâchée avant la pause part au premier step après la reprise.
 4. **Charge et gel ou ralenti :** la charge avance en temps réel, comme la caméra. L'envoi se fait au premier step suivant, par le verrou.
 5. **Relâchement tardif :** au-delà de `chargeHoldMaxSeconds`, le saut part tout seul, à charge pleine. On ne reste jamais bloqué en charge.
 6. **Feinte et frappe au sol hors contexte :** sans geste d'attaque possible, elles sont ignorées, sans événement ni recharge consommée.

@@ -13,7 +13,21 @@ npm install
 npm run dev         # puis ouvrir http://localhost:5173
 ```
 
-Contrôles : ZQSD ou flèches pour se déplacer, Espace pour l'action (servir, passer, attaquer, contrer), Échap pour la pause, F1 pour le debug. Une manette fonctionne aussi.
+Contrôles (clavier et souris · manette) :
+
+| Geste | Touches |
+|---|---|
+| Déplacement | ZQSD ou flèches · stick gauche |
+| Action (servir, passer, attaquer, contrer) | clic gauche · Espace · A ; pendant une attaque, maintenir pour charger le saut, relâcher pour sauter |
+| Feinte | clic droit · X |
+| Frappe au sol | C · Y |
+| Plongeon | Maj · bouton B |
+| Visée | attaque : la vue (viseur) · autres gestes : direction tenue |
+| Caméra | souris · stick droit · A / E |
+| Pause | Échap · Start |
+| Debug et ralenti | F1 |
+
+Les clics ne comptent comme commandes qu'une fois la souris capturée (un premier clic sur le jeu la capture).
 
 Pour tester la version de production et mettre le jeu en ligne gratuitement, voir [docs/tester-et-heberger.md](docs/tester-et-heberger.md).
 

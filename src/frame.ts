@@ -13,8 +13,9 @@ import type { Overlay } from './render/renderer';
 import { assignRoles, targetPosition } from './sim/ai/decisions';
 import { createBrain, type Brain } from './sim/ai/brain';
 import { sideOf } from './sim/court';
+import { jumpHeightFor } from './sim/player';
 import { createInitialState, NEUTRAL_COMMAND, step } from './sim/simulation';
-import { gestureFor } from './sim/touch';
+import { attackContactHeight, attackFlightTime, gestureFor, netClearingDepth } from './sim/touch';
 import { TUNING } from './sim/tuning';
 import type { Command, GameEvent, GameState, MatchConfig, PlayerState, TeamId, Vec2 } from './sim/types';
 import { applyMagnetism } from './ui/assist';
@@ -122,18 +123,47 @@ function humanWorldCommand(s: Session, state: GameState, cmd: Command): Command 
 }
 
 /**
- * Point visé au sol par la vue (spec Attaque v2 § 4.2, § 4.4), ou null. Rempli pendant une charge ou
- * son envoi, une feinte ou une frappe au sol en attente, un pending d'attaque (feinte comprise) de
- * l'humain, ou quand l'attaque est le geste attendu de l'humain. `attacking` (montée de la caméra) :
- * charge, envoi de charge ou pending d'attaque.
+ * L'humain vise en attaque (revue finale I1, option a) : l'attaque est son geste attendu, une charge est
+ * en cours ou attend son envoi, ou il a un pending d'attaque (feinte comprise). La même valeur fait
+ * monter la caméra (Overlay.attacking) et sert au point visé (aimPointFromView) : la cible montrée avant
+ * l'appui ne saute pas quand la charge démarre.
  */
-function sessionAimPoint(s: Session, state: GameState, cmd: Command): Vec2 | null {
-  const human = humanOf(s, state);
-  if (human === null) return null;
-  const attacking = forcedForward(s) || human.pending?.gesture === 'attack';
-  const show = attacking || s.tipLatch || s.groundHitLatch
+function isAttackAiming(s: Session, state: GameState, human: PlayerState, cmd: Command): boolean {
+  return forcedForward(s) || human.pending?.gesture === 'attack'
     || humansBallGesture(state, human.id, cmd) === 'attack';
-  return show ? aimPointFromView({ x: human.pos.x, z: human.pos.z }, human.team, s.view, attacking) : null;
+}
+
+/**
+ * Visée de l'humain : `attacking` (voir isAttackAiming) et le point visé au sol par la vue (spec
+ * Attaque v2 § 4.2, § 4.4), ou null. Le point est rempli quand l'humain vise en attaque, ou quand une
+ * feinte ou une frappe au sol attend d'être jouée.
+ */
+function sessionAim(s: Session, state: GameState, cmd: Command): { attacking: boolean; aimPoint: Vec2 | null } {
+  const human = humanOf(s, state);
+  if (human === null) return { attacking: false, aimPoint: null };
+  const attacking = isAttackAiming(s, state, human, cmd);
+  const show = attacking || s.tipLatch || s.groundHitLatch;
+  return {
+    attacking,
+    aimPoint: show ? aimPointFromView({ x: human.pos.x, z: human.pos.z }, human.team, s.view, attacking) : null,
+  };
+}
+
+/**
+ * Cible affichée de l'attaque (revue finale I2) : la profondeur est relevée comme le fera la simulation
+ * pour que la balle passe le filet (netClearingDepth), depuis un contact estimé : la position de l'humain
+ * à la hauteur de contact de son saut (saut en cours, charge relâchée, charge courante, sinon la charge
+ * médiane). La feinte et la frappe au sol gardent le point de la vue (leurs bornes ne sont pas montrées).
+ */
+function previewAimPoint(s: Session, human: PlayerState, point: Vec2): Vec2 {
+  const pending = human.pending;
+  if (s.tipLatch || s.groundHitLatch || (pending?.gesture === 'attack' && pending.tip)) return point;
+  const h = pending?.gesture === 'attack' ? human.jumpHeight : jumpHeightFor(s.chargeLatch ?? s.charge?.value ?? 0.5);
+  const contact = { x: human.pos.x, y: attackContactHeight(h), z: human.pos.z };
+  const A = TUNING.attack2;
+  const minDepth = netClearingDepth(contact, human.team, attackFlightTime(h), A.aimMinDepth, A.aimMaxDepth);
+  const side = sideOf(human.team);
+  return -side * point.z >= minDepth ? point : { x: point.x, z: -side * minDepth };
 }
 
 /**
@@ -146,7 +176,11 @@ function updateCharge(s: Session, frameInput: InputFrame, dt: number): void {
   const cmd = worldCommand(command, s.view.yaw);
   const A = TUNING.attack2;
 
+  // Un front Action qui démarre ou relâche la charge de l'attaque l'emporte sur une feinte ou une frappe
+  // au sol de la même frame, comme dans la simulation (Ruling 6, revue finale M3).
+  let actionAttacks = false;
   if (command.actionPressed) {
+    actionAttacks = true;
     if (s.charge !== null) {
       // Relâché puis réappuyé entre deux lectures de l'entrée : c'est le relâchement de la charge.
       s.chargeLatch = s.charge.value;
@@ -154,11 +188,12 @@ function updateCharge(s: Session, frameInput: InputFrame, dt: number): void {
     } else if (humansBallGesture(s.curr, humanId, cmd) === 'attack') {
       s.charge = { held: 0, value: 0 };
     } else {
+      actionAttacks = false;
       s.actionLatch = true;
     }
   }
 
-  if (command.tipPressed || command.groundHitPressed) {
+  if (!actionAttacks && (command.tipPressed || command.groundHitPressed)) {
     s.charge = null;
     if (command.tipPressed) s.tipLatch = true;
     if (command.groundHitPressed) s.groundHitLatch = true;
@@ -204,7 +239,7 @@ function playStep(s: Session, frameInput: InputFrame, now: number): void {
     jumpCharge: s.chargeLatch ?? 0.5,
     tipPressed: s.tipLatch,
     groundHitPressed: s.groundHitLatch,
-    aimPoint: sessionAimPoint(s, before, aimed),
+    aimPoint: sessionAim(s, before, aimed).aimPoint,
   };
   s.actionLatch = false;
   s.diveLatch = false;
@@ -275,11 +310,12 @@ export function advanceFrame(
   let fx: FxFrame = PAUSED_FX;
   if (s.paused) {
     // La charge en cours est gelée (ni progression ni annulation) ; aucun front ne démarre de charge.
+    // Une charge déjà relâchée (chargeLatch) garde son envoi : la simulation est figée, il part au
+    // premier step après la reprise, comme sans pause.
     s.actionLatch = false;
     s.diveLatch = false;
     s.tipLatch = false;
     s.groundHitLatch = false;
-    s.chargeLatch = null;
   } else {
     // Temps réel, y compris pendant un gel ou un ralenti ; plafonné comme l'accumulateur (onglet figé).
     const dt = Math.min(frameDt, MAX_FRAME_DT);
@@ -301,7 +337,9 @@ export function advanceFrame(
   // (visée vers l'avant pendant une charge, Ruling 4) ; l'anneau suit la charge courante (§ 5.2).
   const command = humanWorldCommand(s, curr, frameInput.command);
   const expected = expectedGesture(curr, humanId, command);
-  const aimPoint = sessionAimPoint(s, curr, command);
+  const { attacking, aimPoint: viewPoint } = sessionAim(s, curr, command);
+  const human = humanOf(s, curr);
+  const aimPoint = viewPoint !== null && human !== null ? previewAimPoint(s, human, viewPoint) : viewPoint;
   const charge = s.charge?.value ?? null;
   const overlay: Overlay = {
     humanId,
@@ -327,7 +365,7 @@ export function advanceFrame(
     view: s.view,
     aimPoint,
     charge,
-    charging: s.charge !== null,
+    attacking,
   };
   s.events = [];
 

@@ -40,7 +40,7 @@
 6. **Priorité dans un même tick :** Action, puis feinte, puis frappe au sol, puis plongeon. Un bouton n'est pris en compte que si aucun geste précédent n'a été joué à ce tick.
 7. **Frappe au sol en 2e touche :** elle suit `gestureFor` → `attack` (spec § 7). En 2e touche, elle n'est donc possible que dans la fenêtre de l'attaque. C'est surtout un geste de 3e touche. Limite acceptée, à noter dans le journal.
 8. **Déviation de la frappe au sol :** `deviate(…, 'groundHit', …)` utilise `errorMax.reception`. On n'ajoute pas de clé `groundHit` à `errorMax`, et la profondeur n'est pas réduite (le facteur de profondeur reste réservé à `attack`).
-9. **Répartition `Overlay` / HUD :** l'humain qui charge (`Overlay.charging`) fait monter la caméra comme une attaque en cours. Le cercle de charge est dessiné **autour du réticule** (DOM), et la cible au sol passe au vert à charge pleine.
+9. **Répartition `Overlay` / HUD :** l'humain qui charge (`Overlay.charging`) fait monter la caméra comme une attaque en cours (revue finale, I1 : le champ devient `Overlay.attacking`, vrai dès que l'attaque est attendue). Le cercle de charge est dessiné **autour du réticule** (DOM), et la cible au sol passe au vert à charge pleine.
 
 ## Points de vigilance (Review Focus)
 

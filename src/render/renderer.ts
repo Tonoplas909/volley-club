@@ -26,8 +26,11 @@ export type Overlay = {
   aimPoint: Vec2 | null;
   /** Charge du saut d'attaque en cours, de 0 à 1 ; null = pas de charge. */
   charge: number | null;
-  /** L'humain charge son saut d'attaque : la caméra monte comme pour une attaque (Ruling 9). */
-  charging: boolean;
+  /**
+   * L'humain vise en attaque (attaque attendue, charge, envoi ou saut d'attaque) : la caméra monte comme
+   * pour une attaque (Ruling 9, revue finale I1). C'est la même valeur que celle du point visé.
+   */
+  attacking: boolean;
 };
 
 export interface Renderer {
@@ -103,7 +106,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
         cameraTarget.x = humanPos.x;
         cameraTarget.z = humanPos.z;
       }
-      rig.update(humanPos ? cameraTarget : null, overlay.view, isHumanAttacking(curr, overlay.humanId) || overlay.charging, dt, overlay.fx.shake);
+      rig.update(humanPos ? cameraTarget : null, overlay.view, isHumanAttacking(curr, overlay.humanId) || overlay.attacking, dt, overlay.fx.shake);
       // Les ondes sont en temps réel (age) : elles se voient pendant l'arrêt sur image.
       shockwaves.update(overlay.fx.shockwaves, rig.camera);
       gl.render(scene, rig.camera);

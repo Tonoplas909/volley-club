@@ -364,7 +364,8 @@ function chargedAttackState(charge: number): GameState {
 }
 
 describe('attaque v2 : point visé au tick de frappe (§ 4.2)', () => {
-  const A = { x: -2, z: 4 };
+  // Deux points assez profonds pour passer le filet depuis le contact (sinon la profondeur est relevée, I2).
+  const A = { x: -2, z: 5 };
   const B = { x: 2, z: 6 };
 
   /** Appui avec aimPoint = A, puis ticks neutres, puis le tick de frappe avec la commande `atStrike`. */
@@ -391,6 +392,15 @@ describe('attaque v2 : point visé au tick de frappe (§ 4.2)', () => {
     const land = landingPoint(strike({ aimPoint: null }).ball.traj);
     expect(Math.abs(land.x - A.x)).toBeLessThan(1e-3);
     expect(Math.abs(land.z - A.z)).toBeLessThan(1e-3);
+  });
+
+  it('point visé à aimMinDepth (vue baissée) : profondeur relevée, l attaque parfaite passe le filet (I2)', () => {
+    const s = strike({ aimPoint: { x: 0, z: TUNING.attack2.aimMinDepth } });
+    const land = landingPoint(s.ball.traj);
+    expect(land.z).toBeGreaterThan(TUNING.attack2.aimMinDepth);
+    const { events } = runUntil(s, (t) => t.phase !== 'rally', 200);
+    expect(events.filter((e) => e.type === 'net')).toEqual([]);
+    expect(events).toContainEqual(expect.objectContaining({ type: 'point', winner: 0 }));
   });
 
   it('le point de l appui est copié dans le pending', () => {
@@ -516,6 +526,27 @@ describe('attaque v2 : frappe pieds au sol (§ 7)', () => {
     expect(s.players[0]!.jumpStartTick).toBeNull();
     expect(s.players[0]!.lockedUntilTick).toBe(ideal + 18);
     expect(s.rally).toEqual({ touchingTeam: 0, touches: 2, lastToucherId: 1 });
+  });
+
+  it('priorité : Action et frappe au sol dans le même tick donnent une attaque sautée, sans frappe au sol', () => {
+    const s0 = attackState();
+    const ideal = idealPressTick(s0, 0, 'attack')!;
+    const s = step(runToTickBefore(s0, ideal), only(0, { actionPressed: true, groundHitPressed: true }));
+    expect(s.players[0]!.pending).toMatchObject({ gesture: 'attack', tip: false });
+    expect(s.players[0]!.jumpStartTick).toBe(ideal);
+    expect(s.events).toEqual([]);
+    expect(s.rally).toEqual({ touchingTeam: 0, touches: 2, lastToucherId: 1 });
+  });
+
+  it('priorité : frappe au sol et plongeon dans le même tick, la frappe au sol seule est jouée et la recharge reste prête', () => {
+    const s0 = groundHitState();
+    const ideal = idealPressTick(s0, 0, 'groundHit')!;
+    const before = runToTickBefore(s0, ideal);
+    const s = step(before, only(0, { groundHitPressed: true, divePressed: true }));
+    expect(s.events).toEqual([{ type: 'touch', playerId: 0, gesture: 'groundHit', quality: 1, tier: 'perfect' }]);
+    const p = s.players[0]!;
+    expect(p.dive).toBeNull();
+    expect(p.diveReadyTick).toBe(before.players[0]!.diveReadyTick);
   });
 
   it('priorité : la feinte passe avant la frappe au sol', () => {

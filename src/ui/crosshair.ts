@@ -61,6 +61,11 @@ export function createCrosshair(parent: HTMLElement): Crosshair {
         root.style.display = visible ? '' : 'none';
       }
       const a = chargeArc(visible ? charge : null);
+      // Avant le retour anticipé : un cercle masqué n'est jamais plein (revue finale M1).
+      if (a.full !== full) {
+        full = a.full;
+        root.classList.toggle('full', a.full);
+      }
       if (a.visible !== ringShown) {
         ringShown = a.visible;
         track.style.display = a.visible ? '' : 'none';
@@ -70,10 +75,6 @@ export function createCrosshair(parent: HTMLElement): Crosshair {
       if (a.fraction !== fraction) {
         fraction = a.fraction;
         arc.setAttribute('stroke-dasharray', `${(a.fraction * CIRCLE_LENGTH).toFixed(2)} ${CIRCLE_LENGTH}`);
-      }
-      if (a.full !== full) {
-        full = a.full;
-        root.classList.toggle('full', a.full);
       }
     },
     dispose(): void {

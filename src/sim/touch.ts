@@ -1,4 +1,6 @@
-import { apexTime, landingPoint, positionAt, secondsSince, timeToHeightDescending } from './ball';
+import {
+  apexTime, landingPoint, launchTo, netCrossingTime, positionAt, secondsSince, timeToHeightDescending,
+} from './ball';
 import { currentServerId, isOnSide, laneCenterX, sideOf, teamPlayers } from './court';
 import { canAct, jumpApexTicks, jumpHeightFor } from './player';
 import { rngInDisc, rngRange } from './rng';
@@ -13,6 +15,11 @@ const JUMP_HEIGHT = TUNING.player.jumpHeight;
 /** Charge médiane du saut d'attaque : le saut et le timing d'avant l'Attaque v2 (IA, appui sans charge). */
 const DEFAULT_CHARGE = 0.5;
 const BALL_RADIUS = TUNING.ball.radius;
+/** Hauteur du centre du ballon au-dessus de laquelle il passe le filet sans le toucher. */
+const NET_CLEAR_HEIGHT = TUNING.court.netHeight + BALL_RADIUS;
+/** Pas de la recherche de la profondeur minimale qui passe le filet (m), puis affinage par dichotomie. */
+const NET_CLEAR_SCAN_STEP = 0.1;
+const NET_CLEAR_BISECTIONS = 20;
 
 /** Constantes géométriques des cibles (mètres). */
 const NET_SIDE_TARGET_DEPTH = 1.0;   // zone de passe / d'attaque : à 1 m du filet
@@ -63,7 +70,7 @@ function tickAtHeightDescending(state: GameState, h: number): number | null {
  * Hauteur de contact d'une attaque sautée de h (Ruling 2) : attackHitHeight pour le saut actuel, décalée
  * de l'écart de hauteur de saut (3,0 m à 0,8 m, 3,3 m à 1,1 m).
  */
-function attackContactHeight(h: number): number {
+export function attackContactHeight(h: number): number {
   return T.attackHitHeight + (h - JUMP_HEIGHT);
 }
 
@@ -312,13 +319,57 @@ export function attackFlightTime(h: number): number {
 }
 
 /**
+ * Le ballon lancé de `from` vers une cible à la profondeur `depth` du camp adverse (temps de vol
+ * `flightTime`) passe-t-il au-dessus du filet (centre à netHeight + rayon au moins) ? La hauteur au
+ * filet ne dépend pas de x : seuls la profondeur et le temps de vol comptent.
+ */
+function clearsNet(from: Vec3, s: -1 | 1, depth: number, flightTime: number): boolean {
+  const traj = launchTo(from, { x: from.x, y: BALL_RADIUS, z: -s * depth }, flightTime, 0);
+  const t = netCrossingTime(traj);
+  return t !== null && positionAt(traj, t).y >= NET_CLEAR_HEIGHT;
+}
+
+/**
+ * Plus petite profondeur de [minDepth, maxDepth] (côté adverse de `team`) dont la trajectoire lancée de
+ * `from` en `flightTime` passe le filet (revue finale, I2). Recherche déterministe : balayage par pas de
+ * 10 cm depuis minDepth, puis dichotomie entre le dernier pas qui échoue et le premier qui passe.
+ * Aucune ne passe : maxDepth. Contact au-dessus du filet ou au-delà : rien à franchir, minDepth.
+ */
+export function netClearingDepth(
+  from: Vec3, team: TeamId, flightTime: number, minDepth: number, maxDepth: number,
+): number {
+  const s = sideOf(team);
+  if (s * from.z <= 0 || clearsNet(from, s, minDepth, flightTime)) return minDepth;
+  const steps = Math.ceil((maxDepth - minDepth) / NET_CLEAR_SCAN_STEP);
+  let lo = minDepth;
+  for (let i = 1; i <= steps; i++) {
+    const hi = i === steps ? maxDepth : minDepth + i * NET_CLEAR_SCAN_STEP;
+    if (clearsNet(from, s, hi, flightTime)) {
+      let top = hi;
+      for (let k = 0; k < NET_CLEAR_BISECTIONS; k++) {
+        const mid = (lo + top) / 2;
+        if (clearsNet(from, s, mid, flightTime)) top = mid;
+        else lo = mid;
+      }
+      return top;
+    }
+    lo = hi;
+  }
+  return maxDepth;
+}
+
+/**
  * Cible de la frappe d'une attaque ou d'une feinte (spec Attaque v2 § 4.2 et § 6).
  * - Avec un point visé : le point, x borné à ±aimMaxX, profondeur côté adverse bornée à
- *   [aimMinDepth, aimMaxDepth] (tipMaxDepth pour une feinte).
- * - Sans point : attackTarget (visée par `aim`), feinte forcée si `tip`.
+ *   [aimMinDepth, aimMaxDepth] (tipMaxDepth pour une feinte). Pour une attaque (pas une feinte), la
+ *   borne basse est relevée à la plus petite profondeur qui passe le filet depuis `contact`, la position
+ *   du ballon à la frappe (netClearingDepth, revue finale I2).
+ * - Sans point : attackTarget (visée par `aim`), feinte forcée si `tip` ; `contact` n'est pas utilisé.
  * Temps de vol : flightTime.tip pour une feinte, sinon la puissance du saut de l'attaquant.
  */
-export function strikeTarget(attacker: PlayerState, aim: Vec2, aimPoint: Vec2 | null, tip: boolean): TouchTarget {
+export function strikeTarget(
+  attacker: PlayerState, aim: Vec2, aimPoint: Vec2 | null, tip: boolean, contact: Vec3,
+): TouchTarget {
   const power = attackFlightTime(attacker.jumpHeight);
   if (aimPoint === null) {
     const { target, isTip } = attackTarget(attacker.pos, attacker.team, aim, tip);
@@ -326,21 +377,25 @@ export function strikeTarget(attacker: PlayerState, aim: Vec2, aimPoint: Vec2 | 
   }
   const s = sideOf(attacker.team);
   const x = clamp(aimPoint.x, -A2.aimMaxX, A2.aimMaxX);
-  const depth = clamp(-s * aimPoint.z, A2.aimMinDepth, tip ? A2.tipMaxDepth : A2.aimMaxDepth);
+  const minDepth = tip ? A2.aimMinDepth : netClearingDepth(contact, attacker.team, power, A2.aimMinDepth, A2.aimMaxDepth);
+  const depth = clamp(-s * aimPoint.z, minDepth, tip ? A2.tipMaxDepth : A2.aimMaxDepth);
   return { target: { x, y: BALL_RADIUS, z: -s * depth }, flightTime: tip ? T.flightTime.tip : power };
 }
 
 /**
  * Cible de la frappe pieds au sol (spec Attaque v2 § 7) : le point visé, avec x borné à ±aimMaxX et une
- * profondeur dans [groundHitMinDepth, aimMaxDepth] côté adverse ; sans point, le centre du camp adverse à 5 m.
+ * profondeur dans [groundHitMinDepth, aimMaxDepth] côté adverse, la borne basse relevée à la plus petite
+ * profondeur qui passe le filet depuis `contact` (position du ballon à la frappe, revue finale I2) ;
+ * sans point, le centre du camp adverse à 5 m (`contact` n'est pas utilisé).
  */
-export function groundHitTarget(aimPoint: Vec2 | null, team: TeamId): TouchTarget {
+export function groundHitTarget(aimPoint: Vec2 | null, team: TeamId, contact: Vec3): TouchTarget {
   const s = sideOf(team);
   if (aimPoint === null) {
     return { target: { x: 0, y: BALL_RADIUS, z: -s * GROUND_HIT_DEFAULT_DEPTH }, flightTime: A2.groundHitFlightTime };
   }
   const x = clamp(aimPoint.x, -A2.aimMaxX, A2.aimMaxX);
-  const depth = clamp(-s * aimPoint.z, A2.groundHitMinDepth, A2.aimMaxDepth);
+  const minDepth = netClearingDepth(contact, team, A2.groundHitFlightTime, A2.groundHitMinDepth, A2.aimMaxDepth);
+  const depth = clamp(-s * aimPoint.z, minDepth, A2.aimMaxDepth);
   return { target: { x, y: BALL_RADIUS, z: -s * depth }, flightTime: A2.groundHitFlightTime };
 }
 
@@ -388,9 +443,9 @@ export function idealTarget(state: GameState, playerId: number, gesture: Gesture
       return { target: { x, y: BALL_RADIUS, z: s * NET_SIDE_TARGET_DEPTH }, flightTime: T.flightTime.set };
     }
     case 'attack':
-      return strikeTarget(player, aim, null, false);
+      return strikeTarget(player, aim, null, false, state.ball.pos);
     case 'groundHit':
-      return groundHitTarget(null, player.team);
+      return groundHitTarget(null, player.team, state.ball.pos);
     case 'serve': {
       const { target, flightTime } = serveTarget(player.pos, player.team, aim);
       return { target, flightTime };

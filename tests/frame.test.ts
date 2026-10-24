@@ -6,7 +6,10 @@ import { MAX_FRAME_DT, STEP_DT } from '../src/loop';
 import { launchTo, positionAt, secondsSince } from '../src/sim/ball';
 import { currentServerId } from '../src/sim/court';
 import { createInitialState, NEUTRAL_COMMAND, step } from '../src/sim/simulation';
-import { contactPoint, gestureFor, idealPressTick } from '../src/sim/touch';
+import { jumpHeightFor } from '../src/sim/player';
+import {
+  attackContactHeight, attackFlightTime, contactPoint, gestureFor, idealPressTick, netClearingDepth,
+} from '../src/sim/touch';
 import { TUNING } from '../src/sim/tuning';
 import type { Command, GameEvent, GameState, MatchConfig, Vec2 } from '../src/sim/types';
 import { applyMagnetism } from '../src/ui/assist';
@@ -670,7 +673,7 @@ describe('advanceFrame : charge du saut d’attaque (spec Attaque v2 § 5.1)', (
     expect(s.charge!.value).toBeCloseTo(0.5, 12);
     expect(out.hud.charge).toBeCloseTo(0.5, 12);
     expect(out.overlay.charge).toBeCloseTo(0.5, 12);
-    expect(out.overlay.charging).toBe(true);
+    expect(out.overlay.attacking).toBe(true);
     const during = humanCommands(calls);
     expect(during.length).toBeGreaterThan(0);
     expect(during.every((c) => !c.actionPressed)).toBe(true);
@@ -679,7 +682,7 @@ describe('advanceFrame : charge du saut d’attaque (spec Attaque v2 § 5.1)', (
     now += STEP_DT * 1.5;
     const released = advanceFrame(s, input(), STEP_DT * 1.5, now); // un seul step
     expect(s.charge).toBeNull();
-    expect(released.overlay.charging).toBe(false);
+    expect(released.overlay.attacking).toBe(true); // saut d'attaque en cours
     expect(released.hud.charge).toBeNull();
     const [sent] = humanCommands(fromRelease);
     expect(sent!.actionPressed).toBe(true);
@@ -924,11 +927,11 @@ describe('advanceFrame : charge du saut d’attaque (spec Attaque v2 § 5.1)', (
     expect(humanCommands(calls)).toEqual([]);
   });
 
-  it('aimPoint : rempli par la vue quand l’attaque est attendue, null pour une réception', () => {
+  it('aimPoint : rempli par la vue « en attaque » dès que l’attaque est attendue (I1), null pour une réception', () => {
     const s = attackSession();
     s.view = { yaw: 0.3, pitch: 0.25 };
     const before = s.curr.players[HUMAN]!;
-    const expected = aimPointFromView({ x: before.pos.x, z: before.pos.z }, 0, s.view, false);
+    const expected = aimPointFromView({ x: before.pos.x, z: before.pos.z }, 0, s.view, true);
     const calls = vi.mocked(step).mock.calls.length;
     const out = advanceFrame(s, input(), STEP_DT * 1.5, 1);
     const [cmd] = humanCommands(calls);
@@ -942,6 +945,7 @@ describe('advanceFrame : charge du saut d’attaque (spec Attaque v2 § 5.1)', (
     expect(humanCommands(from)[0]!.aimPoint).toBeNull();
     expect(rOut.hud.crosshair).toBe(false);
     expect(rOut.overlay.aimPoint).toBeNull();
+    expect(rOut.overlay.attacking).toBe(false);
     expect(rOut.hud.charge).toBeNull();
   });
 
@@ -954,6 +958,145 @@ describe('advanceFrame : charge du saut d’attaque (spec Attaque v2 § 5.1)', (
     const calls = vi.mocked(step).mock.calls.length;
     advanceFrame(s, held(), STEP_DT * 1.5, now += STEP_DT * 1.5);
     expect(humanCommands(calls)[0]!.aimPoint).toEqual(expected);
+  });
+
+  it('I1 : le point visé (commande et cible affichée) ne change pas quand la charge démarre, et la caméra monte dès l’attaque attendue', () => {
+    const s = attackSession();
+    s.view = { yaw: 0.2, pitch: TUNING.camera.pitchDefault };
+    let now = 1;
+    let calls = vi.mocked(step).mock.calls.length;
+    const expectedFrame = advanceFrame(s, input(), STEP_DT * 1.5, now); // attaque attendue, pas d'appui
+    const [cmdExpected] = humanCommands(calls);
+    expect(s.charge).toBeNull();
+    expect(expectedFrame.overlay.attacking).toBe(true);
+    calls = vi.mocked(step).mock.calls.length;
+    const charging = advanceFrame(s, pressHeld(), STEP_DT * 1.5, now += STEP_DT * 1.5); // la charge démarre
+    const [cmdCharging] = humanCommands(calls);
+    expect(s.charge).not.toBeNull();
+    expect(charging.overlay.attacking).toBe(true);
+    expect(cmdExpected!.aimPoint).not.toBeNull();
+    expect(cmdCharging!.aimPoint).toEqual(cmdExpected!.aimPoint);
+    expect(charging.overlay.aimPoint).toEqual(expectedFrame.overlay.aimPoint);
+    const human = s.curr.players[HUMAN]!;
+    expect(cmdExpected!.aimPoint).toEqual(aimPointFromView({ x: human.pos.x, z: human.pos.z }, 0, s.view, true));
+  });
+
+  it('I1 : une frappe au sol pressée pendant une charge vise avec la même vue « en attaque » que la caméra', () => {
+    const s = attackSession();
+    let now = 1;
+    // La caméra de la charge est montée…
+    expect(advanceFrame(s, pressHeld(), DT, now).overlay.attacking).toBe(true);
+    const calls = vi.mocked(step).mock.calls.length;
+    advanceFrame(s, held({ groundHitPressed: true }), STEP_DT * 1.5, now += STEP_DT * 1.5);
+    const [cmd] = humanCommands(calls);
+    expect(cmd!.groundHitPressed).toBe(true);
+    // … et la frappe au sol (charge annulée) vise avec la même montée.
+    const human = s.prev.players[HUMAN]!;
+    expect(cmd!.aimPoint).toEqual(aimPointFromView({ x: human.pos.x, z: human.pos.z }, 0, s.view, true));
+  });
+
+  it('I2 : vue baissée, la cible affichée est relevée à la profondeur qui passe le filet ; la commande garde le point de la vue', () => {
+    const s = attackSession();
+    s.view = { yaw: 0, pitch: TUNING.camera.pitchMax };
+    const human = s.curr.players[HUMAN]!;
+    const raw = aimPointFromView({ x: human.pos.x, z: human.pos.z }, 0, s.view, true);
+    const h = jumpHeightFor(0.5);
+    const minDepth = netClearingDepth(
+      { x: human.pos.x, y: attackContactHeight(h), z: human.pos.z }, 0, attackFlightTime(h),
+      TUNING.attack2.aimMinDepth, TUNING.attack2.aimMaxDepth,
+    );
+    expect(raw.z).toBeLessThan(minDepth);
+    const calls = vi.mocked(step).mock.calls.length;
+    const out = advanceFrame(s, input(), STEP_DT * 1.5, 1);
+    expect(humanCommands(calls)[0]!.aimPoint).toEqual(raw);
+    expect(out.overlay.aimPoint).toEqual({ x: raw.x, z: minDepth });
+  });
+
+  it('I2 : la cible affichée suit la charge courante (saut plus haut, minimum plus court)', () => {
+    const s = attackSession();
+    s.view = { yaw: 0, pitch: TUNING.camera.pitchMax };
+    let now = 1;
+    const low = advanceFrame(s, pressHeld(), STEP_DT, now).overlay.aimPoint!;
+    for (let i = 0; i < 6; i++) advanceFrame(s, held(), 0.1, now += 0.1);
+    expect(s.charge!.value).toBe(1);
+    const human = s.curr.players[HUMAN]!;
+    const h = jumpHeightFor(1);
+    const minDepth = netClearingDepth(
+      { x: human.pos.x, y: attackContactHeight(h), z: human.pos.z }, 0, attackFlightTime(h),
+      TUNING.attack2.aimMinDepth, TUNING.attack2.aimMaxDepth,
+    );
+    const full = advanceFrame(s, held(), 0.1, now += 0.1).overlay.aimPoint!;
+    expect(full.z).toBeCloseTo(minDepth, 12);
+    expect(full.z).toBeLessThan(low.z);
+  });
+
+  it('M3 : Action et feinte dans la même frame, attaque attendue : la charge démarre, la feinte est ignorée', () => {
+    const s = attackSession();
+    const calls = vi.mocked(step).mock.calls.length;
+    advanceFrame(s, held({ actionPressed: true, tipPressed: true }), STEP_DT * 1.5, 1);
+    expect(s.charge).not.toBeNull();
+    expect(s.tipLatch).toBe(false);
+    expect(humanCommands(calls).every((c) => !c.tipPressed && !c.actionPressed)).toBe(true);
+    expect(s.curr.players[HUMAN]!.pending).toBeNull();
+  });
+
+  it('M3 : Action (relâchement) et frappe au sol dans la même frame pendant une charge : le saut part, pas la frappe au sol', () => {
+    const s = attackSession();
+    let now = 1;
+    advanceFrame(s, pressHeld(), DT, now);
+    const value = s.charge!.value;
+    const calls = vi.mocked(step).mock.calls.length;
+    advanceFrame(s, held({ actionPressed: true, groundHitPressed: true }), STEP_DT * 1.5, now += STEP_DT * 1.5);
+    const sent = humanCommands(calls);
+    expect(sent[0]!.actionPressed).toBe(true);
+    expect(sent[0]!.jumpCharge).toBe(value);
+    expect(sent.every((c) => !c.groundHitPressed)).toBe(true);
+    expect(s.groundHitLatch).toBe(false);
+    expect(s.curr.players[HUMAN]!.pending).toMatchObject({ gesture: 'attack', tip: false });
+  });
+
+  it('M10 : un front Action pendant une charge vaut relâchement (saut envoyé, pas de nouvelle charge)', () => {
+    const s = attackSession();
+    let now = 1;
+    advanceFrame(s, pressHeld(), DT, now);
+    advanceFrame(s, held(), DT, now += DT);
+    const value = s.charge!.value;
+    const calls = vi.mocked(step).mock.calls.length;
+    advanceFrame(s, pressHeld(), STEP_DT * 1.5, now += STEP_DT * 1.5);
+    expect(s.charge).toBeNull();
+    const sent = humanCommands(calls).filter((c) => c.actionPressed);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.jumpCharge).toBe(value);
+    expect(s.curr.players[HUMAN]!.pending?.gesture).toBe('attack');
+    advanceFrame(s, held(), DT, now += DT); // bouton toujours tenu : rien ne repart
+    expect(s.charge).toBeNull();
+  });
+
+  it('charge relâchée pendant un gel puis pause avant le premier step : l’envoi survit à la pause et part au premier step', () => {
+    const s = attackSession();
+    let now = 1;
+    advanceFrame(s, pressHeld(), STEP_DT * 1.5, now);
+    s.fx.onEvents([attackTouch], s.curr); // gel de 140 ms
+    const tick = s.curr.tick;
+    advanceFrame(s, held(), 0.02, now += 0.02);
+    const latched = s.charge!.value;
+    advanceFrame(s, input(), 0.02, now += 0.02); // relâché pendant le gel
+    expect(s.chargeLatch).toBe(latched);
+    const calls = vi.mocked(step).mock.calls.length;
+    advanceFrame(s, input({}, { pausePressed: true }), 0.02, now += 0.02);
+    expect(s.paused).toBe(true);
+    for (let i = 0; i < 4; i++) advanceFrame(s, input(), 0.25, now += 0.25);
+    expect(s.chargeLatch).toBe(latched);
+    expect(s.curr.tick).toBe(tick);
+    advanceFrame(s, input({}, { pausePressed: true }), 0.02, now += 0.02);
+    expect(s.paused).toBe(false);
+    for (let i = 0; i < 20 && s.curr.tick === tick; i++) advanceFrame(s, input(), 0.05, now += 0.05);
+    const cmds = humanCommands(calls);
+    expect(cmds[0]!.actionPressed).toBe(true);
+    expect(cmds[0]!.jumpCharge).toBe(latched);
+    expect(cmds.slice(1).every((c) => !c.actionPressed)).toBe(true);
+    expect(s.chargeLatch).toBeNull();
+    expect(s.curr.players[HUMAN]!.pending?.gesture).toBe('attack');
   });
 
   it('l’explication d’un appui chargé est calculée avec sa charge (carte du dernier appui)', () => {

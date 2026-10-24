@@ -262,7 +262,7 @@ function playGroundHit(s: GameState, p: PlayerState, cmd: Command): void {
     return;
   }
   if (!countTouch(s, p)) return;
-  applyTouch(s, p, 'groundHit', ev.quality, deviated(s, groundHitTarget(cmd.aimPoint, p.team), ev.quality, 'groundHit'));
+  applyTouch(s, p, 'groundHit', ev.quality, deviated(s, groundHitTarget(cmd.aimPoint, p.team, s.ball.pos), ev.quality, 'groundHit'));
 }
 
 /**
@@ -307,7 +307,8 @@ function resolvePendingAttacks(s: GameState, cmdOf: CommandOf): void {
       continue;
     }
     if (!countTouch(s, p)) return;
-    const ideal = strikeTarget(p, pending.aim, cmdOf(p.id).aimPoint ?? pending.aimPoint, pending.tip);
+    // Le ballon part de sa position courante (applyTouch) : c'est le contact qui borne la profondeur visée.
+    const ideal = strikeTarget(p, pending.aim, cmdOf(p.id).aimPoint ?? pending.aimPoint, pending.tip, s.ball.pos);
     applyTouch(s, p, 'attack', pending.quality, deviated(s, ideal, pending.quality, 'attack'));
   }
 }
