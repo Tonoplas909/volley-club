@@ -15,6 +15,12 @@ const RING_GREEN_BELOW = 0.1;
 const RING_COLOR = 0xffffff;
 const RING_GREEN = 0x38e06b;
 
+/** Cible au sol du point visé (attaque, spec Attaque v2 § 4.4) : anneau et croix à plat. */
+const AIM_Y = 0.035;
+const AIM_RING = { inner: 0.3, outer: 0.42 };
+const AIM_CROSS = { length: 1.1, width: 0.08 };
+const AIM_OPACITY = 0.9;
+
 /** Contour épais du point de chute et pulsation douce (rayon relatif, rad/s). */
 const LANDING_OUTLINE = 0.1;
 const LANDING_PULSE = { amplitude: 0.1, speed: 8 };
@@ -116,7 +122,7 @@ export interface MarkersView {
   onEvents(events: GameEvent[], time: number, positionOf: (id: number) => Vec3 | null): void;
   update(
     curr: GameState,
-    overlay: { assistZone: Vec2 | null; timingRing: number | null },
+    overlay: { assistZone: Vec2 | null; timingRing: number | null; aimPoint: Vec2 | null; charge: number | null },
     humanPos: Vec3 | null,
     time: number,
     positionOf: (id: number) => Vec3 | null,
@@ -147,7 +153,25 @@ export function createMarkers(): MarkersView {
   ring.rotation.x = -Math.PI / 2;
   ring.position.y = GROUND_Y.ring;
   ring.visible = false;
-  group.add(landing, assist, ring);
+
+  const aim = new THREE.Group();
+  const aimMaterial = new THREE.MeshBasicMaterial({
+    color: RING_COLOR, transparent: true, opacity: AIM_OPACITY, depthWrite: false,
+  });
+  const aimRing = new THREE.Mesh(new THREE.RingGeometry(AIM_RING.inner, AIM_RING.outer, 40), aimMaterial);
+  aimRing.rotation.x = -Math.PI / 2;
+  aim.add(aimRing);
+  for (const along of ['x', 'z'] as const) {
+    const bar = new THREE.Mesh(
+      new THREE.PlaneGeometry(along === 'x' ? AIM_CROSS.length : AIM_CROSS.width, along === 'x' ? AIM_CROSS.width : AIM_CROSS.length),
+      aimMaterial,
+    );
+    bar.rotation.x = -Math.PI / 2;
+    aim.add(bar);
+  }
+  aim.position.y = AIM_Y;
+  aim.visible = false;
+  group.add(landing, assist, ring, aim);
 
   const textures = new Map<QualityTier, THREE.CanvasTexture>();
   for (const [tier, { text, color }] of Object.entries(TIER_LABELS) as [QualityTier, { text: string; color: string }][]) {
@@ -228,6 +252,13 @@ export function createMarkers(): MarkersView {
         ring.scale.setScalar(radius);
         setRingInner(ring.geometry as THREE.RingGeometry, 1 - RING_WIDTH / radius);
         (ring.material as THREE.MeshBasicMaterial).color.setHex(t < RING_GREEN_BELOW ? RING_GREEN : RING_COLOR);
+      }
+
+      aim.visible = overlay.aimPoint !== null;
+      if (overlay.aimPoint) {
+        aim.position.x = overlay.aimPoint.x;
+        aim.position.z = overlay.aimPoint.z;
+        aimMaterial.color.setHex(overlay.charge === 1 ? RING_GREEN : RING_COLOR);
       }
 
       for (const ft of texts) {

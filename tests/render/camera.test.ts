@@ -25,7 +25,7 @@ describe('isHumanAttacking', () => {
   it('vrai dès que l\'humain a une attaque en cours', () => {
     const s = withTick(100);
     s.players = s.players.map((p) => p.id === 0
-      ? { ...p, pending: { gesture: 'attack', pressTick: 100, resolveTick: 124, quality: 1, aim: { x: 0, z: 1 } } }
+      ? { ...p, pending: { gesture: 'attack', pressTick: 100, resolveTick: 124, quality: 1, aim: { x: 0, z: 1 }, tip: false, aimPoint: null } }
       : p);
     expect(isHumanAttacking(s, 0)).toBe(true);
   });
@@ -63,9 +63,8 @@ describe('createCameraRig (montée à l\'attaque, 3e personne)', () => {
     const normalY = rig.camera.position.y;
 
     for (let i = 0; i < 60; i++) rig.update(target, view, true, 1 / 60, NO_SHAKE);
-    // Assez haut pour voir par-dessus la bande du filet.
-    expect(rig.camera.position.y).toBeGreaterThan(TUNING.court.netHeight + 1.5);
-    expect(rig.camera.position.y).toBeGreaterThan(normalY + 1.5);
+    // La montée vient du seul point visé (attackTargetLift), sans changer l'inclinaison.
+    expect(rig.camera.position.y).toBeCloseTo(normalY + TUNING.camera.attackTargetLift, 6);
     // Toujours derrière le joueur.
     expect(rig.camera.position.z).toBeLessThan(target.z);
 
@@ -82,6 +81,19 @@ describe('createCameraRig (montée à l\'attaque, 3e personne)', () => {
       expect(rig.camera.position.y - last).toBeLessThan(0.2);
       expect(rig.camera.position.y).toBeGreaterThanOrEqual(last);
       last = rig.camera.position.y;
+    }
+  });
+
+  it('en attaque, la caméra est à cameraPosition(cible montée, vue du joueur), pitch inchangé', () => {
+    for (const pitch of [0.1, TUNING.camera.pitchDefault, TUNING.camera.pitchMax]) {
+      const v = { yaw: 0.4, pitch };
+      const rig = createCameraRig(16 / 9);
+      rig.update(target, v, false, 0, NO_SHAKE);
+      for (let i = 0; i < 120; i++) rig.update(target, v, true, 1 / 60, NO_SHAKE);
+      const expected = cameraPosition({ ...target, y: target.y + TUNING.camera.attackTargetLift }, v);
+      expect(rig.camera.position.x).toBeCloseTo(expected.x, 6);
+      expect(rig.camera.position.y).toBeCloseTo(expected.y, 6);
+      expect(rig.camera.position.z).toBeCloseTo(expected.z, 6);
     }
   });
 

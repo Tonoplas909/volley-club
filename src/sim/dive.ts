@@ -163,6 +163,7 @@ export function beginDive(state: GameState, playerId: number, cmd: Command): Pla
     diveReadyTick: t0 + D.cooldownTicks,
     pending: intent === null ? null : {
       gesture: 'dive', pressTick: t0, resolveTick: Math.max(intent.ideal, t0 + 1), quality: null, aim: { ...cmd.aim },
+      tip: false, aimPoint: null,
     },
   };
 }

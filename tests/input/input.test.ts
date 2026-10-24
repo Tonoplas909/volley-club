@@ -524,3 +524,182 @@ describe('createInput orientation de la caméra', () => {
     input.dispose();
   });
 });
+
+function mouseButton(type: 'mousedown' | 'mouseup', button: number): Event {
+  return Object.assign(new Event(type), { button });
+}
+
+const PAD_BUTTONS = (pressed: number[]): boolean[] => Array.from({ length: 10 }, (_, i) => pressed.includes(i));
+
+describe('createInput clics souris (attaque v2)', () => {
+  it('capturée : mousedown gauche donne actionPressed une seule fois, actionHeld jusqu’au mouseup', () => {
+    setPads([]);
+    const target = new EventTarget();
+    const input = createInput(target, { mouseLocked: () => true });
+    target.dispatchEvent(mouseButton('mousedown', 0));
+    const first = input.poll();
+    expect(first.command.actionPressed).toBe(true);
+    expect(first.actionHeld).toBe(true);
+    const second = input.poll();
+    expect(second.command.actionPressed).toBe(false);
+    expect(second.actionHeld).toBe(true);
+    target.dispatchEvent(mouseButton('mouseup', 0));
+    expect(input.poll().actionHeld).toBe(false);
+    input.dispose();
+  });
+
+  it('non capturée : les boutons 0 et 2 ne donnent ni action, ni feinte, ni actionHeld', () => {
+    setPads([]);
+    const target = new EventTarget();
+    const input = createInput(target, { mouseLocked: () => false });
+    target.dispatchEvent(mouseButton('mousedown', 0));
+    target.dispatchEvent(mouseButton('mousedown', 2));
+    const frame = input.poll();
+    expect(frame.command.actionPressed).toBe(false);
+    expect(frame.command.tipPressed).toBe(false);
+    expect(frame.actionHeld).toBe(false);
+    expect(frame.device).toBe('keyboard');
+    input.dispose();
+  });
+
+  it('clic gauche tenu puis capture perdue : actionHeld retombe, et reste faux après blur même si la capture revient', () => {
+    setPads([]);
+    let locked = true;
+    const target = new EventTarget();
+    const input = createInput(target, { mouseLocked: () => locked });
+    target.dispatchEvent(mouseButton('mousedown', 0));
+    expect(input.poll().actionHeld).toBe(true);
+    locked = false;
+    expect(input.poll().actionHeld).toBe(false);
+    locked = true;
+    expect(input.poll().actionHeld).toBe(false);
+
+    target.dispatchEvent(mouseButton('mousedown', 0));
+    expect(input.poll().actionHeld).toBe(true);
+    target.dispatchEvent(new Event('blur'));
+    expect(input.poll().actionHeld).toBe(false);
+    input.dispose();
+  });
+
+  it('mouseup hors capture relâche le clic gauche', () => {
+    setPads([]);
+    let locked = true;
+    const target = new EventTarget();
+    const input = createInput(target, { mouseLocked: () => locked });
+    target.dispatchEvent(mouseButton('mousedown', 0));
+    locked = false;
+    target.dispatchEvent(mouseButton('mouseup', 0));
+    locked = true;
+    expect(input.poll().actionHeld).toBe(false);
+    input.dispose();
+  });
+
+  it('clic droit capturé : tipPressed une seule fois, sans action', () => {
+    setPads([]);
+    const target = new EventTarget();
+    const input = createInput(target, { mouseLocked: () => true });
+    target.dispatchEvent(mouseButton('mousedown', 2));
+    const first = input.poll();
+    expect(first.command.tipPressed).toBe(true);
+    expect(first.command.actionPressed).toBe(false);
+    expect(first.actionHeld).toBe(false);
+    expect(input.poll().command.tipPressed).toBe(false);
+    input.dispose();
+  });
+
+  it('un clic capturé compte comme activité clavier, même après la manette', () => {
+    setPads([fakePad([0, 0], PAD_BUTTONS([0]))]);
+    const target = new EventTarget();
+    const input = createInput(target, { mouseLocked: () => true });
+    expect(input.poll().device).toBe('gamepad');
+    target.dispatchEvent(mouseButton('mousedown', 2));
+    expect(input.poll().device).toBe('keyboard');
+    input.dispose();
+  });
+
+  it('dispose retire les écouteurs de clic', () => {
+    setPads([]);
+    const target = new EventTarget();
+    const input = createInput(target, { mouseLocked: () => true });
+    input.dispose();
+    target.dispatchEvent(mouseButton('mousedown', 0));
+    const frame = input.poll();
+    expect(frame.command.actionPressed).toBe(false);
+    expect(frame.actionHeld).toBe(false);
+  });
+});
+
+describe('createInput C, Espace et manette (attaque v2)', () => {
+  it('KeyC donne groundHitPressed une seule fois, sans répétition', () => {
+    setPads([]);
+    const target = new EventTarget();
+    const input = createInput(target);
+    target.dispatchEvent(keyEvent('keydown', 'KeyC'));
+    expect(input.poll().command.groundHitPressed).toBe(true);
+    target.dispatchEvent(keyEvent('keydown', 'KeyC'));
+    expect(input.poll().command.groundHitPressed).toBe(false);
+    input.dispose();
+  });
+
+  it('Espace maintenu donne actionHeld, relâché le retire', () => {
+    setPads([]);
+    const target = new EventTarget();
+    const input = createInput(target);
+    expect(input.poll().actionHeld).toBe(false);
+    target.dispatchEvent(keyEvent('keydown', 'Space'));
+    expect(input.poll().actionHeld).toBe(true);
+    expect(input.poll().actionHeld).toBe(true);
+    target.dispatchEvent(keyEvent('keyup', 'Space'));
+    expect(input.poll().actionHeld).toBe(false);
+    input.dispose();
+  });
+
+  it('manette : boutons 2 et 3 donnent tipPressed et groundHitPressed sur front montant', () => {
+    setPads([fakePad([0, 0], PAD_BUTTONS([2]))]);
+    const input = createInput(new EventTarget());
+    const a = input.poll();
+    expect(a.command.tipPressed).toBe(true);
+    expect(a.command.groundHitPressed).toBe(false);
+    expect(input.poll().command.tipPressed).toBe(false);
+    setPads([fakePad([0, 0], PAD_BUTTONS([3]))]);
+    const b = input.poll();
+    expect(b.command.groundHitPressed).toBe(true);
+    expect(b.command.tipPressed).toBe(false);
+    expect(input.poll().command.groundHitPressed).toBe(false);
+    setPads([fakePad([0, 0], PAD_BUTTONS([]))]);
+    input.poll();
+    setPads([fakePad([0, 0], PAD_BUTTONS([2, 3]))]);
+    const c = input.poll();
+    expect(c.command.tipPressed).toBe(true);
+    expect(c.command.groundHitPressed).toBe(true);
+    input.dispose();
+  });
+
+  it('manette : bouton 0 maintenu donne actionHeld, relâché le retire', () => {
+    setPads([fakePad([0, 0], PAD_BUTTONS([0]))]);
+    const input = createInput(new EventTarget());
+    expect(input.poll().actionHeld).toBe(true);
+    expect(input.poll().actionHeld).toBe(true);
+    setPads([fakePad([0, 0], PAD_BUTTONS([]))]);
+    expect(input.poll().actionHeld).toBe(false);
+    input.dispose();
+  });
+
+  it('les boutons X et Y seuls rendent la manette active', () => {
+    for (const button of [2, 3]) {
+      setPads([fakePad([0, 0], PAD_BUTTONS([button]))]);
+      const input = createInput(new EventTarget());
+      expect(input.poll().device).toBe('gamepad');
+      input.dispose();
+    }
+  });
+
+  it('la commande garde aimPoint null et jumpCharge 0,5', () => {
+    setPads([]);
+    const input = createInput(new EventTarget());
+    const { command } = input.poll();
+    expect(command.aimPoint).toBeNull();
+    expect(command.jumpCharge).toBe(0.5);
+    input.dispose();
+  });
+});

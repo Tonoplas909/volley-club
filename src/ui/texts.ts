@@ -32,6 +32,7 @@ export function tierText(tier: QualityTier): string {
 }
 
 const GESTURE_LABELS: Record<Exclude<Gesture, 'serve'>, string> = {
+  groundHit: 'FRAPPE AU SOL',
   reception: 'RÉCEPTION',
   set: 'PASSE',
   attack: 'ATTAQUE',

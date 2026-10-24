@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { landingPoint, launchTo, netCrossingTime, positionAt, secondsSince } from '../../src/sim/ball';
+import { landingPoint, landingTime, launchTo, netCrossingTime, positionAt, secondsSince } from '../../src/sim/ball';
 import { currentServerId, isInCourt, sideOf, startPosition } from '../../src/sim/court';
 import { jumpApexTicks } from '../../src/sim/player';
 import { rngNext } from '../../src/sim/rng';
@@ -25,7 +25,7 @@ const CONFIG: MatchConfig = {
 /** Commandes où seul `id` appuie sur Action. */
 function press(id: number, aim: Vec2 = { x: 0, z: 0 }): Command[] {
   const cmds: Command[] = [];
-  cmds[id] = { move: { x: 0, z: 0 }, aim, actionPressed: true, divePressed: false };
+  cmds[id] = { move: { x: 0, z: 0 }, aim, actionPressed: true, divePressed: false, aimPoint: null, jumpCharge: 0.5, tipPressed: false, groundHitPressed: false };
   return Array.from({ length: id + 1 }, (_, i) => cmds[i] ?? NEUTRAL_COMMAND);
 }
 
@@ -131,6 +131,20 @@ describe('createInitialState', () => {
   });
 });
 
+describe('contrat Attaque v2', () => {
+  it('NEUTRAL_COMMAND : visée nulle, charge médiane, pas de feinte ni de frappe au sol', () => {
+    expect(NEUTRAL_COMMAND.aimPoint).toBeNull();
+    expect(NEUTRAL_COMMAND.jumpCharge).toBe(0.5);
+    expect(NEUTRAL_COMMAND.tipPressed).toBe(false);
+    expect(NEUTRAL_COMMAND.groundHitPressed).toBe(false);
+  });
+
+  it('tous les joueurs initiaux ont jumpHeight = 0,8', () => {
+    const s = createInitialState(CONFIG);
+    for (const p of s.players) expect(p.jumpHeight).toBe(0.8);
+  });
+});
+
 describe('placement', () => {
   it('après placementTicks steps neutres : phase serve, chaque joueur à sa startPosition', () => {
     const s0 = createInitialState(CONFIG);
@@ -145,7 +159,7 @@ describe('placement', () => {
 
   it('les commandes sont ignorées pendant le placement', () => {
     const s0 = createInitialState(CONFIG);
-    const pushing: Command = { move: { x: 1, z: 0 }, aim: { x: 0, z: 0 }, actionPressed: true, divePressed: false };
+    const pushing: Command = { move: { x: 1, z: 0 }, aim: { x: 0, z: 0 }, actionPressed: true, divePressed: false, aimPoint: null, jumpCharge: 0.5, tipPressed: false, groundHitPressed: false };
     const s = run(s0, 10, s0.players.map(() => pushing)).state;
     expect(s.events).toEqual([]);
     for (const p of s.players) expect(p.pos).toEqual(startPosition(s, p.id));
@@ -336,6 +350,233 @@ describe('attaque', () => {
   });
 });
 
+/** Commandes où seul `id` a une commande non neutre (`partial`, sur une base sans appui). */
+function only(id: number, partial: Partial<Command>): Command[] {
+  return Array.from({ length: id + 1 }, (_, i) => (i === id ? { ...NEUTRAL_COMMAND, ...partial } : NEUTRAL_COMMAND));
+}
+
+/** Attaque du joueur 0 placée au point de contact pour la charge donnée (qualité 1 à idealPressTick). */
+function chargedAttackState(charge: number): GameState {
+  const s = attackState();
+  const c = contactPoint(s, 0, 'attack', charge)!;
+  s.players[0]!.pos = { x: c.x, y: 0, z: c.z };
+  return s;
+}
+
+describe('attaque v2 : point visé au tick de frappe (§ 4.2)', () => {
+  // Deux points assez profonds pour passer le filet depuis le contact (sinon la profondeur est relevée, I2).
+  const A = { x: -2, z: 5 };
+  const B = { x: 2, z: 6 };
+
+  /** Appui avec aimPoint = A, puis ticks neutres, puis le tick de frappe avec la commande `atStrike`. */
+  function strike(atStrike: Partial<Command>): GameState {
+    const s0 = attackState();
+    const ideal = idealPressTick(s0, 0, 'attack')!;
+    const pressed = step(runToTickBefore(s0, ideal), only(0, { actionPressed: true, aimPoint: A }));
+    expect(pressed.players[0]!.pending).toMatchObject({ gesture: 'attack', tip: false, aimPoint: A, quality: 1 });
+    const before = runToTickBefore(pressed, ideal + jumpApexTicks());
+    const s = step(before, only(0, atStrike));
+    expect(s.events).toEqual([{ type: 'touch', playerId: 0, gesture: 'attack', quality: 1, tier: 'perfect' }]);
+    return s;
+  }
+
+  it('la commande du tick de frappe porte B : le ballon tombe en B', () => {
+    const land = landingPoint(strike({ aimPoint: B }).ball.traj);
+    expect(land.x).toBeCloseTo(B.x, 3);
+    expect(land.z).toBeCloseTo(B.z, 3);
+    expect(Math.abs(land.x - B.x)).toBeLessThan(1e-3);
+    expect(Math.abs(land.z - B.z)).toBeLessThan(1e-3);
+  });
+
+  it('sans point dans la commande du tick de frappe : le point de l appui (A) sert de secours', () => {
+    const land = landingPoint(strike({ aimPoint: null }).ball.traj);
+    expect(Math.abs(land.x - A.x)).toBeLessThan(1e-3);
+    expect(Math.abs(land.z - A.z)).toBeLessThan(1e-3);
+  });
+
+  it('point visé à aimMinDepth (vue baissée) : profondeur relevée, l attaque parfaite passe le filet (I2)', () => {
+    const s = strike({ aimPoint: { x: 0, z: TUNING.attack2.aimMinDepth } });
+    const land = landingPoint(s.ball.traj);
+    expect(land.z).toBeGreaterThan(TUNING.attack2.aimMinDepth);
+    const { events } = runUntil(s, (t) => t.phase !== 'rally', 200);
+    expect(events.filter((e) => e.type === 'net')).toEqual([]);
+    expect(events).toContainEqual(expect.objectContaining({ type: 'point', winner: 0 }));
+  });
+
+  it('le point de l appui est copié dans le pending', () => {
+    const s0 = attackState();
+    const point = { x: 1, z: 5 };
+    const pressed = step(runToTickBefore(s0, idealPressTick(s0, 0, 'attack')!), only(0, { actionPressed: true, aimPoint: point }));
+    point.x = 3;
+    expect(pressed.players[0]!.pending!.aimPoint).toEqual({ x: 1, z: 5 });
+  });
+});
+
+describe('attaque v2 : saut chargé (§ 5.2)', () => {
+  it('charge 1 : resolveTick à +28, saut de 1,1 m, temps de vol 0,45 s à qualité 1', () => {
+    const s0 = chargedAttackState(1);
+    const ideal = idealPressTick(s0, 0, 'attack', 1)!;
+    expect(ideal).not.toBe(idealPressTick(s0, 0, 'attack'));
+    const pressed = step(runToTickBefore(s0, ideal), only(0, { actionPressed: true, jumpCharge: 1 }));
+    const p = pressed.players[0]!;
+    expect(p.pending).toMatchObject({ gesture: 'attack', pressTick: ideal, resolveTick: ideal + 28, quality: 1, tip: false });
+    expect(p.jumpHeight).toBeCloseTo(1.1, 12);
+    expect(p.jumpStartTick).toBe(ideal);
+    expect(p.lockedUntilTick).toBe(ideal + 56);
+    const before = runToTickBefore(pressed, ideal + 28);
+    expect(before.events).toEqual([]);
+    const s = step(before, []);
+    expect(s.events).toEqual([{ type: 'touch', playerId: 0, gesture: 'attack', quality: 1, tier: 'perfect' }]);
+    expect(Math.abs(landingTime(s.ball.traj) - 0.45)).toBeLessThan(1e-9);
+  });
+
+  it('charge médiane : saut de 0,8 m et temps de vol 0,6 s, comme avant', () => {
+    const s0 = attackState();
+    const ideal = idealPressTick(s0, 0, 'attack')!;
+    const pressed = step(runToTickBefore(s0, ideal), press(0));
+    expect(pressed.players[0]!.jumpHeight).toBe(0.8);
+    expect(pressed.players[0]!.lockedUntilTick).toBe(ideal + 48);
+    const s = step(runToTickBefore(pressed, ideal + 24), []);
+    expect(Math.abs(landingTime(s.ball.traj) - 0.6)).toBeLessThan(1e-9);
+  });
+});
+
+describe('attaque v2 : feinte au bouton (§ 6)', () => {
+  it('tipPressed quand l attaque est possible : pending feinte, saut de 0,8 m même avec une charge', () => {
+    const s0 = attackState();
+    s0.players[0]!.jumpHeight = 1.1; // reste d'un saut chargé précédent
+    const ideal = idealPressTick(s0, 0, 'attack')!;
+    const pressed = step(runToTickBefore(s0, ideal), only(0, { tipPressed: true, jumpCharge: 1 }));
+    const p = pressed.players[0]!;
+    expect(pressed.events).toEqual([]);
+    expect(p.pending).toMatchObject({ gesture: 'attack', tip: true, resolveTick: ideal + 24, quality: 1 });
+    expect(p.jumpHeight).toBe(0.8);
+    const s = step(runToTickBefore(pressed, ideal + 24), []);
+    expect(s.events).toEqual([{ type: 'touch', playerId: 0, gesture: 'attack', quality: 1, tier: 'perfect' }]);
+    const land = landingPoint(s.ball.traj);
+    expect(land.z).toBeGreaterThan(0);
+    expect(land.z).toBeLessThanOrEqual(3 + 1e-6);
+    expect(Math.abs(landingTime(s.ball.traj) - TUNING.touch.flightTime.tip)).toBeLessThan(1e-9);
+  });
+
+  it('feinte avec un point visé lointain : profondeur ramenée à 3 m', () => {
+    const s0 = attackState();
+    const ideal = idealPressTick(s0, 0, 'attack')!;
+    const pressed = step(runToTickBefore(s0, ideal), only(0, { tipPressed: true, aimPoint: { x: 1, z: 6 } }));
+    const s = step(runToTickBefore(pressed, ideal + 24), only(0, { aimPoint: { x: 1, z: 7 } }));
+    const land = landingPoint(s.ball.traj);
+    expect(Math.abs(land.x - 1)).toBeLessThan(1e-3);
+    expect(Math.abs(land.z - 3)).toBeLessThan(1e-3);
+  });
+
+  it('priorité : Action et feinte dans le même tick donnent une attaque normale', () => {
+    const s0 = attackState();
+    const ideal = idealPressTick(s0, 0, 'attack')!;
+    const pressed = step(runToTickBefore(s0, ideal), only(0, { actionPressed: true, tipPressed: true }));
+    expect(pressed.players[0]!.pending).toMatchObject({ gesture: 'attack', tip: false });
+  });
+
+  it('priorité : feinte et plongeon dans le même tick, la feinte seule est jouée et la recharge reste prête', () => {
+    const s0 = attackState();
+    const ideal = idealPressTick(s0, 0, 'attack')!;
+    const before = runToTickBefore(s0, ideal);
+    const pressed = step(before, only(0, { tipPressed: true, divePressed: true }));
+    const p = pressed.players[0]!;
+    expect(p.pending).toMatchObject({ gesture: 'attack', tip: true });
+    expect(p.dive).toBeNull();
+    expect(p.diveReadyTick).toBe(before.players[0]!.diveReadyTick);
+    expect(pressed.events.filter((e) => e.type === 'dive')).toEqual([]);
+  });
+});
+
+describe('attaque v2 : frappe pieds au sol (§ 7)', () => {
+  /** Attaque possible (3e touche) ; joueur 0 sur le point de contact de la frappe au sol. */
+  function groundHitState(): GameState {
+    const s = attackState();
+    const c = contactPoint(s, 0, 'groundHit')!;
+    s.players[0]!.pos = { x: c.x, y: 0, z: c.z };
+    return s;
+  }
+
+  it('à l instant idéal sur le point de contact : touch groundHit, sans saut, verrou de 18 ticks, ballon vers le point visé', () => {
+    const s0 = groundHitState();
+    const ideal = idealPressTick(s0, 0, 'groundHit')!;
+    const aimPoint = { x: -1, z: 5 };
+    const s = step(runToTickBefore(s0, ideal), only(0, { groundHitPressed: true, aimPoint }));
+    expect(s.tick).toBe(ideal);
+    expect(s.events).toEqual([{ type: 'touch', playerId: 0, gesture: 'groundHit', quality: 1, tier: 'perfect' }]);
+    const p = s.players[0]!;
+    expect(p.jumpStartTick).toBeNull();
+    expect(p.pending).toBeNull();
+    expect(p.lockedUntilTick).toBe(ideal + 18);
+    expect(s.rally).toEqual({ touchingTeam: 0, touches: 3, lastToucherId: 0 });
+    expect(s.ball.lastTouch).toMatchObject({ playerId: 0, gesture: 'groundHit' });
+    const land = landingPoint(s.ball.traj);
+    expect(Math.abs(land.x - aimPoint.x)).toBeLessThan(1e-3);
+    expect(Math.abs(land.z - aimPoint.z)).toBeLessThan(1e-3);
+    expect(Math.abs(landingTime(s.ball.traj) - TUNING.attack2.groundHitFlightTime)).toBeLessThan(1e-9);
+  });
+
+  it('loin du ballon : whiff groundHit, verrou quand même, sans saut', () => {
+    const s0 = groundHitState();
+    s0.players[0]!.pos.x += 3;
+    const ideal = idealPressTick(s0, 0, 'groundHit')!;
+    const s = step(runToTickBefore(s0, ideal), only(0, { groundHitPressed: true }));
+    expect(s.events).toEqual([{ type: 'whiff', playerId: 0, gesture: 'groundHit' }]);
+    expect(s.players[0]!.jumpStartTick).toBeNull();
+    expect(s.players[0]!.lockedUntilTick).toBe(ideal + 18);
+    expect(s.rally).toEqual({ touchingTeam: 0, touches: 2, lastToucherId: 1 });
+  });
+
+  it('priorité : Action et frappe au sol dans le même tick donnent une attaque sautée, sans frappe au sol', () => {
+    const s0 = attackState();
+    const ideal = idealPressTick(s0, 0, 'attack')!;
+    const s = step(runToTickBefore(s0, ideal), only(0, { actionPressed: true, groundHitPressed: true }));
+    expect(s.players[0]!.pending).toMatchObject({ gesture: 'attack', tip: false });
+    expect(s.players[0]!.jumpStartTick).toBe(ideal);
+    expect(s.events).toEqual([]);
+    expect(s.rally).toEqual({ touchingTeam: 0, touches: 2, lastToucherId: 1 });
+  });
+
+  it('priorité : frappe au sol et plongeon dans le même tick, la frappe au sol seule est jouée et la recharge reste prête', () => {
+    const s0 = groundHitState();
+    const ideal = idealPressTick(s0, 0, 'groundHit')!;
+    const before = runToTickBefore(s0, ideal);
+    const s = step(before, only(0, { groundHitPressed: true, divePressed: true }));
+    expect(s.events).toEqual([{ type: 'touch', playerId: 0, gesture: 'groundHit', quality: 1, tier: 'perfect' }]);
+    const p = s.players[0]!;
+    expect(p.dive).toBeNull();
+    expect(p.diveReadyTick).toBe(before.players[0]!.diveReadyTick);
+  });
+
+  it('priorité : la feinte passe avant la frappe au sol', () => {
+    const s0 = attackState();
+    const ideal = idealPressTick(s0, 0, 'attack')!;
+    const s = step(runToTickBefore(s0, ideal), only(0, { tipPressed: true, groundHitPressed: true }));
+    expect(s.players[0]!.pending).toMatchObject({ gesture: 'attack', tip: true });
+    expect(s.events).toEqual([]);
+  });
+});
+
+describe('attaque v2 : feinte et frappe au sol hors contexte (vigilance 6)', () => {
+  it('réception attendue : ni événement, ni pending, ni verrou ; le plongeon du même tick part', () => {
+    const s0 = receptionState();
+    const ideal = idealPressTick(s0, 0, 'reception')!;
+    const before = runToTickBefore(s0, ideal);
+    for (const partial of [{ tipPressed: true }, { groundHitPressed: true }, { tipPressed: true, groundHitPressed: true }]) {
+      const s = step(before, only(0, partial));
+      expect(s.events).toEqual([]);
+      expect(s.players[0]!.pending).toBeNull();
+      expect(s.players[0]!.lockedUntilTick).toBe(before.players[0]!.lockedUntilTick);
+      expect(s.players[0]!.jumpStartTick).toBeNull();
+      expect(s.players[0]!.diveReadyTick).toBe(before.players[0]!.diveReadyTick);
+    }
+    const dived = step(before, only(0, { tipPressed: true, groundHitPressed: true, divePressed: true }));
+    expect(dived.events).toContainEqual({ type: 'dive', playerId: 0 });
+    expect(dived.players[0]!.dive).not.toBeNull();
+  });
+});
+
 describe('contre', () => {
   /** Attaque adverse qui passe le filet à x = 0 ; le joueur 0 saute au bon moment devant le filet. */
   function blockState(quality: number): GameState {
@@ -353,7 +594,7 @@ describe('contre', () => {
     p0.pos = { x: 0.2, y: 0, z: -0.5 };
     p0.jumpStartTick = jumpStart;
     p0.lockedUntilTick = jumpStart + 2 * jumpApexTicks();
-    p0.pending = { gesture: 'block', pressTick: jumpStart, resolveTick: jumpStart + 2 * jumpApexTicks(), quality, aim: { x: 0, z: 0 } };
+    p0.pending = { gesture: 'block', pressTick: jumpStart, resolveTick: jumpStart + 2 * jumpApexTicks(), quality, aim: { x: 0, z: 0 }, tip: false, aimPoint: null };
     return advanced;
   }
 
@@ -504,6 +745,10 @@ describe('pureté et robustesse', () => {
             aim: { x: b.value * 2 - 1, z: a.value * 2 - 1 },
             actionPressed: c.value < 0.08,
             divePressed: false,
+            aimPoint: null,
+            jumpCharge: 0.5,
+            tipPressed: false,
+            groundHitPressed: false,
           };
         });
         s = step(s, cmds);

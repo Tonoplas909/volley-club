@@ -14,7 +14,7 @@ import './ui/styles.css';
 /** Touches dont l'action par défaut du navigateur (défilement, aide) est supprimée pendant le match. */
 const GAME_KEYS: ReadonlySet<string> = new Set([
   'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'F1',
-  'ShiftLeft', 'ShiftRight', 'KeyQ', 'KeyE',
+  'ShiftLeft', 'ShiftRight', 'KeyQ', 'KeyE', 'KeyC',
 ]);
 
 const DEFAULT_CONFIG: MatchConfig = {
@@ -120,6 +120,11 @@ function start(canvas: HTMLCanvasElement, ui: HTMLElement): void {
     else if (action === 'capture') requestLock();
   });
 
+  // Le clic droit est la feinte : pas de menu contextuel du navigateur pendant un match.
+  canvas.addEventListener('contextmenu', (event) => {
+    if (session) event.preventDefault();
+  });
+
   function resize(): void {
     renderer.resize(canvas.clientWidth, canvas.clientHeight);
   }
@@ -139,7 +144,7 @@ function start(canvas: HTMLCanvasElement, ui: HTMLElement): void {
 
   const emptyOverlay: Overlay = {
     humanId: null, assistZone: null, timingRing: null, events: [], debug: null, fx: NEUTRAL_FX,
-    view: initialView(0),
+    view: initialView(0), aimPoint: null, charge: null, attacking: false,
   };
   let lastNow = performance.now();
 

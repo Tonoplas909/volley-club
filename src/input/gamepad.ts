@@ -14,6 +14,10 @@ export type GamepadReading = {
   action: boolean;
   /** Bouton 1 (B, plongeon) maintenu. */
   dive: boolean;
+  /** Bouton 2 (X, feinte) maintenu. */
+  tip: boolean;
+  /** Bouton 3 (Y, frappe au sol) maintenu. */
+  groundHit: boolean;
   /** Bouton 9 (pause) maintenu. */
   pause: boolean;
 };
@@ -56,6 +60,8 @@ export function readGamepad(pad: Gamepad | null): GamepadReading | null {
     look,
     action: pad.buttons[0]?.pressed ?? false,
     dive: pad.buttons[1]?.pressed ?? false,
+    tip: pad.buttons[2]?.pressed ?? false,
+    groundHit: pad.buttons[3]?.pressed ?? false,
     pause: pad.buttons[9]?.pressed ?? false,
   };
 }

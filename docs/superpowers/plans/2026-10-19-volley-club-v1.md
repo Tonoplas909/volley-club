@@ -79,6 +79,8 @@ Ce sont les cas implicites de la spec les plus susceptibles de casser. Chacun a 
 
 - [ ] **Étape 2 : écrire `src/sim/types.ts` exactement comme suit.** Ce contrat est partagé : on ne renomme rien.
 
+> Ajouts au contrat : chantier Plongeon (`docs/superpowers/plans/2026-10-20-volley-club-plongeon.md`) et chantier Attaque v2 (`docs/superpowers/plans/2026-10-22-volley-club-attaque-v2.md`).
+
 ```ts
 export type Vec2 = { x: number; z: number };
 export type Vec3 = { x: number; y: number; z: number };

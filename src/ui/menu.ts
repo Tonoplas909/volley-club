@@ -14,9 +14,11 @@ const HUMAN_PLAYER_ID = 0;
 
 const CONTROLS: readonly (readonly [string, string])[] = [
   ['Déplacement', 'ZQSD ou flèches · stick gauche'],
-  ['Action (servir, passer, attaquer, contrer)', 'Espace · bouton A'],
+  ['Action (servir, passer, attaquer, contrer)', 'clic gauche · Espace · A'],
+  ['Feinte', 'clic droit · X'],
+  ['Frappe au sol', 'C · Y'],
   ['Plongeon', 'Maj · bouton B'],
-  ['Visée', 'direction tenue au moment de l’appui'],
+  ['Visée', 'attaque : la vue (viseur) · autres gestes : direction tenue'],
   ['Caméra', 'souris · stick droit · A / E'],
   ['Pause', 'Échap · Start'],
   ['Debug et ralenti', 'F1'],

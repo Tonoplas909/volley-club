@@ -9,6 +9,7 @@ import { createMarkers } from './markers';
 import { createPlayers } from './players';
 import { createScene } from './scene';
 import { createShockwaves } from './shockwave';
+import { createTrajectoryHint } from './trajectoryHint';
 import { TUNING } from '../sim/tuning';
 
 export type Overlay = {
@@ -21,6 +22,15 @@ export type Overlay = {
   fx: FxFrame;
   /** Orientation de la caméra (3e personne). */
   view: CameraView;
+  /** Point visé au sol par la vue (cible de l'attaque, spec Attaque v2 § 4.4) ; null = pas de viseur. */
+  aimPoint: Vec2 | null;
+  /** Charge du saut d'attaque en cours, de 0 à 1 ; null = pas de charge. */
+  charge: number | null;
+  /**
+   * L'humain vise en attaque (attaque attendue, charge, envoi ou saut d'attaque) : la caméra monte comme
+   * pour une attaque (Ruling 9, revue finale I1). C'est la même valeur que celle du point visé.
+   */
+  attacking: boolean;
 };
 
 export interface Renderer {
@@ -54,8 +64,9 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
   const markers = createMarkers();
   const debug = createDebug();
   const shockwaves = createShockwaves();
+  const trajectoryHint = createTrajectoryHint();
   const rig = createCameraRig(canvas.clientWidth > 0 && canvas.clientHeight > 0 ? canvas.clientWidth / canvas.clientHeight : 16 / 9);
-  scene.add(players.group, ball.group, markers.group, debug.group, shockwaves.group);
+  scene.add(players.group, ball.group, markers.group, debug.group, shockwaves.group, trajectoryHint.group);
 
   let time = 0;
   let last: number | null = null;
@@ -88,13 +99,14 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
         players.positionOf,
       );
       debug.update(curr, overlay.debug, players.positionOf);
+      trajectoryHint.update(curr, overlay.humanId);
       // Cible : l'humain interpolé, à hauteur fixe (saut et plongeon ignorés). Sans humain, la caméra garde sa cible.
       const humanPos = overlay.humanId === null ? null : players.positionOf(overlay.humanId);
       if (humanPos) {
         cameraTarget.x = humanPos.x;
         cameraTarget.z = humanPos.z;
       }
-      rig.update(humanPos ? cameraTarget : null, overlay.view, isHumanAttacking(curr, overlay.humanId), dt, overlay.fx.shake);
+      rig.update(humanPos ? cameraTarget : null, overlay.view, isHumanAttacking(curr, overlay.humanId) || overlay.attacking, dt, overlay.fx.shake);
       // Les ondes sont en temps réel (age) : elles se voient pendant l'arrêt sur image.
       shockwaves.update(overlay.fx.shockwaves, rig.camera);
       gl.render(scene, rig.camera);
@@ -109,6 +121,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer {
       ball.dispose();
       markers.dispose();
       debug.dispose();
+      trajectoryHint.dispose();
       shockwaves.dispose();
       disposeScene();
       gl.dispose();

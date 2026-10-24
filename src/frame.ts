@@ -1,9 +1,10 @@
 /**
  * Logique d'une frame de match (spec V1.1 § 2, § 3, § 5, § 6.2, § 8), sans DOM ni three :
  * pause, debug, impact (gel, ralenti, vibration), aimantation, verrou d'appui, steps de simulation,
- * explication du dernier appui de l'humain. `main.ts` ne fait que l'afficher.
+ * explication du dernier appui de l'humain. Attaque v2 (§ 4.2, § 5.1) : charge du saut d'attaque,
+ * point visé par la vue, feinte et frappe au sol. `main.ts` ne fait que l'afficher.
  */
-import { initialView, screenToWorld, updateView, type CameraView } from './camera/view';
+import { aimPointFromView, initialView, screenToWorld, updateView, type CameraView } from './camera/view';
 import { createFx, type Fx, type FxFrame } from './fx/fx';
 import type { InputFrame } from './input/input';
 import { consumeAccumulator, isDiscontinuity, MAX_FRAME_DT } from './loop';
@@ -11,13 +12,16 @@ import { NO_POINTER, resolvePause, showMouseHint, type PointerStatus } from './p
 import type { Overlay } from './render/renderer';
 import { assignRoles, targetPosition } from './sim/ai/decisions';
 import { createBrain, type Brain } from './sim/ai/brain';
+import { sideOf } from './sim/court';
+import { jumpHeightFor } from './sim/player';
 import { createInitialState, NEUTRAL_COMMAND, step } from './sim/simulation';
-import { gestureFor } from './sim/touch';
-import type { Command, GameEvent, GameState, MatchConfig } from './sim/types';
+import { attackContactHeight, attackFlightTime, gestureFor, netClearingDepth } from './sim/touch';
+import { TUNING } from './sim/tuning';
+import type { Command, GameEvent, GameState, MatchConfig, PlayerState, TeamId, Vec2 } from './sim/types';
 import { applyMagnetism } from './ui/assist';
 import type { HudView } from './ui/hud';
 import {
-  diveHint, diveReadiness, expectedGesture, explainPress, timingRing, type PressExplanation,
+  diveHint, diveReadiness, expectedGesture, explainPress, humansBallGesture, timingRing, type PressExplanation,
 } from './ui/overlay';
 import type { LastPressView } from './ui/pressCard';
 
@@ -49,6 +53,17 @@ export type Session = {
   actionLatch: boolean;
   /** Idem pour l'appui Plongeon. */
   diveLatch: boolean;
+  /** Idem pour la feinte (front montant). */
+  tipLatch: boolean;
+  /** Idem pour la frappe au sol (front montant). */
+  groundHitLatch: boolean;
+  /**
+   * Charge du saut d'attaque en cours (spec Attaque v2 § 5.1, Ruling 3) : `held` = temps réel maintenu
+   * hors pause (s), `value` = charge de 0 à 1. null = pas de charge.
+   */
+  charge: { held: number; value: number } | null;
+  /** Charge relâchée, à envoyer (actionPressed et jumpCharge) au prochain step ; null = rien à envoyer. */
+  chargeLatch: number | null;
   /** Événements accumulés depuis la frame précédente (vidés à chaque frame). */
   events: GameEvent[];
   /** Explication du dernier appui de l'humain qui a produit un geste, en attente de son touch ou whiff. */
@@ -74,8 +89,133 @@ export function newSession(config: MatchConfig, options: MatchOptions): Session 
   return {
     config, options, brains, fx: createFx({ reducedMotion: options.reducedMotion, humanId: config.humanPlayerId }),
     prev: state, curr: state, acc: 0, paused: false, pauseGuard: 0, debug: false, view: initialView(human?.team ?? 0), actionLatch: false, diveLatch: false, events: [],
+    tipLatch: false, groundHitLatch: false, charge: null, chargeLatch: null,
     pendingExplanation: null, lastPress: null, lastQuality: 0,
   };
+}
+
+/**
+ * Visée forcée vers le camp adverse (Ruling 4) : une fois la charge commencée, l'attaque ne dépend plus
+ * de la direction tenue (en 2e touche, lâcher « avant » ne la change pas en passe).
+ */
+export function forwardAim(team: TeamId): Vec2 {
+  return { x: 0, z: -sideOf(team) };
+}
+
+function humanOf(s: Session, state: GameState): PlayerState | null {
+  const humanId = s.config.humanPlayerId;
+  return humanId === null ? null : state.players.find((p) => p.id === humanId) ?? null;
+}
+
+/** Une charge est en cours ou attend son envoi : la visée de l'humain est forcée vers l'avant. */
+function forcedForward(s: Session): boolean {
+  return s.charge !== null || s.chargeLatch !== null;
+}
+
+/**
+ * Commande de l'humain en repère terrain (worldCommand), avec la visée vers l'avant pendant une charge
+ * ou son envoi (Ruling 4).
+ */
+function humanWorldCommand(s: Session, state: GameState, cmd: Command): Command {
+  const world = worldCommand(cmd, s.view.yaw);
+  const human = humanOf(s, state);
+  return human !== null && forcedForward(s) ? { ...world, aim: forwardAim(human.team) } : world;
+}
+
+/**
+ * L'humain vise en attaque (revue finale I1, option a) : l'attaque est son geste attendu, une charge est
+ * en cours ou attend son envoi, ou il a un pending d'attaque (feinte comprise). La même valeur fait
+ * monter la caméra (Overlay.attacking) et sert au point visé (aimPointFromView) : la cible montrée avant
+ * l'appui ne saute pas quand la charge démarre.
+ */
+function isAttackAiming(s: Session, state: GameState, human: PlayerState, cmd: Command): boolean {
+  return forcedForward(s) || human.pending?.gesture === 'attack'
+    || humansBallGesture(state, human.id, cmd) === 'attack';
+}
+
+/**
+ * Visée de l'humain : `attacking` (voir isAttackAiming) et le point visé au sol par la vue (spec
+ * Attaque v2 § 4.2, § 4.4), ou null. Le point est rempli quand l'humain vise en attaque, ou quand une
+ * feinte ou une frappe au sol attend d'être jouée.
+ */
+function sessionAim(s: Session, state: GameState, cmd: Command): { attacking: boolean; aimPoint: Vec2 | null } {
+  const human = humanOf(s, state);
+  if (human === null) return { attacking: false, aimPoint: null };
+  const attacking = isAttackAiming(s, state, human, cmd);
+  const show = attacking || s.tipLatch || s.groundHitLatch;
+  return {
+    attacking,
+    aimPoint: show ? aimPointFromView({ x: human.pos.x, z: human.pos.z }, human.team, s.view, attacking) : null,
+  };
+}
+
+/**
+ * Cible affichée de l'attaque (revue finale I2) : la profondeur est relevée comme le fera la simulation
+ * pour que la balle passe le filet (netClearingDepth), depuis un contact estimé : la position de l'humain
+ * à la hauteur de contact de son saut (saut en cours, charge relâchée, charge courante, sinon la charge
+ * médiane). La feinte et la frappe au sol gardent le point de la vue (leurs bornes ne sont pas montrées).
+ */
+function previewAimPoint(s: Session, human: PlayerState, point: Vec2): Vec2 {
+  const pending = human.pending;
+  if (s.tipLatch || s.groundHitLatch || (pending?.gesture === 'attack' && pending.tip)) return point;
+  const h = pending?.gesture === 'attack' ? human.jumpHeight : jumpHeightFor(s.chargeLatch ?? s.charge?.value ?? 0.5);
+  const contact = { x: human.pos.x, y: attackContactHeight(h), z: human.pos.z };
+  const A = TUNING.attack2;
+  const minDepth = netClearingDepth(contact, human.team, attackFlightTime(h), A.aimMinDepth, A.aimMaxDepth);
+  const side = sideOf(human.team);
+  return -side * point.z >= minDepth ? point : { x: point.x, z: -side * minDepth };
+}
+
+/**
+ * Charge du saut d'attaque, en temps réel hors pause (spec Attaque v2 § 5.1) : fronts Action, feinte et
+ * frappe au sol, progression, annulation et relâchement. `dt` : temps réel plafonné de la frame.
+ */
+function updateCharge(s: Session, frameInput: InputFrame, dt: number): void {
+  const humanId = s.config.humanPlayerId;
+  const { command } = frameInput;
+  const cmd = worldCommand(command, s.view.yaw);
+  const A = TUNING.attack2;
+
+  // Un front Action qui démarre ou relâche la charge de l'attaque l'emporte sur une feinte ou une frappe
+  // au sol de la même frame, comme dans la simulation (Ruling 6, revue finale M3).
+  let actionAttacks = false;
+  if (command.actionPressed) {
+    actionAttacks = true;
+    if (s.charge !== null) {
+      // Relâché puis réappuyé entre deux lectures de l'entrée : c'est le relâchement de la charge.
+      s.chargeLatch = s.charge.value;
+      s.charge = null;
+    } else if (humansBallGesture(s.curr, humanId, cmd) === 'attack') {
+      s.charge = { held: 0, value: 0 };
+    } else {
+      actionAttacks = false;
+      s.actionLatch = true;
+    }
+  }
+
+  if (!actionAttacks && (command.tipPressed || command.groundHitPressed)) {
+    s.charge = null;
+    if (command.tipPressed) s.tipLatch = true;
+    if (command.groundHitPressed) s.groundHitLatch = true;
+  }
+
+  if (s.charge === null) return;
+  const human = humanOf(s, s.curr);
+  if (human === null || humansBallGesture(s.curr, humanId, { ...cmd, aim: forwardAim(human.team) }) !== 'attack') {
+    s.charge = null; // annulation (ballon touché par un autre, fin de l'échange) : rien n'est envoyé
+    return;
+  }
+  let { held, value } = s.charge;
+  if (frameInput.actionHeld) {
+    held += dt;
+    value = Math.min(1, held / A.chargeSeconds);
+  }
+  if (!frameInput.actionHeld || held >= A.chargeSeconds + A.chargeHoldMaxSeconds) {
+    s.chargeLatch = value;
+    s.charge = null;
+  } else {
+    s.charge = { held, value };
+  }
 }
 
 /** Commande de l'humain en repère terrain : `move` et `aim` (repère écran) tournés selon `yaw`. */
@@ -88,17 +228,37 @@ function playStep(s: Session, frameInput: InputFrame, now: number): void {
   const humanId = s.config.humanPlayerId;
   const before = s.curr;
   // La caméra du moment où le step est joué, pas celle de l'appui (spec § 8 point 4).
-  const aimed = worldCommand(frameInput.command, s.view.yaw);
+  const aimed = humanWorldCommand(s, before, frameInput.command);
   const moved = humanId !== null && s.options.magnet ? applyMagnetism(before, humanId, aimed) : aimed;
-  // L'appui Action n'est joué qu'au premier step effectif (front montant, pas un maintien).
-  const human: Command = { ...moved, actionPressed: s.actionLatch, divePressed: s.diveLatch };
+  // Les appuis ne sont joués qu'au premier step effectif (front montant, pas un maintien). Une charge
+  // relâchée part comme un appui Action, avec sa charge (spec Attaque v2 § 5.1).
+  const human: Command = {
+    ...moved,
+    actionPressed: s.actionLatch || s.chargeLatch !== null,
+    divePressed: s.diveLatch,
+    jumpCharge: s.chargeLatch ?? 0.5,
+    tipPressed: s.tipLatch,
+    groundHitPressed: s.groundHitLatch,
+    aimPoint: sessionAim(s, before, aimed).aimPoint,
+  };
   s.actionLatch = false;
   s.diveLatch = false;
+  s.tipLatch = false;
+  s.groundHitLatch = false;
+  s.chargeLatch = null;
 
-  if (humanId !== null && human.actionPressed) {
+  if (humanId !== null && (human.actionPressed || human.tipPressed || human.groundHitPressed)) {
+    // La simulation évalue l'appui au tick suivant, avec la priorité du Ruling 6 : Action, puis feinte,
+    // puis frappe au sol (seulement si l'attaque est possible). Un appui sans geste ne change rien.
     const gesture = gestureFor(before, humanId, human);
-    // La simulation évalue l'appui au tick suivant. Un appui sans geste (ignoré) ne change rien.
-    if (gesture !== null) s.pendingExplanation = explainPress(before, humanId, gesture, before.tick + 1);
+    const pressTick = before.tick + 1;
+    if (human.actionPressed && gesture !== null) {
+      s.pendingExplanation = explainPress(before, humanId, gesture, pressTick, human.jumpCharge);
+    } else if (gesture === 'attack' && human.tipPressed) {
+      s.pendingExplanation = explainPress(before, humanId, 'attack', pressTick, 0.5);
+    } else if (gesture === 'attack' && human.groundHitPressed) {
+      s.pendingExplanation = explainPress(before, humanId, 'groundHit', pressTick);
+    }
   }
 
   const commands = before.players.map((p) => (p.id === humanId
@@ -149,12 +309,18 @@ export function advanceFrame(
 
   let fx: FxFrame = PAUSED_FX;
   if (s.paused) {
+    // La charge en cours est gelée (ni progression ni annulation) ; aucun front ne démarre de charge.
+    // Une charge déjà relâchée (chargeLatch) garde son envoi : la simulation est figée, il part au
+    // premier step après la reprise, comme sans pause.
     s.actionLatch = false;
     s.diveLatch = false;
+    s.tipLatch = false;
+    s.groundHitLatch = false;
   } else {
     // Temps réel, y compris pendant un gel ou un ralenti ; plafonné comme l'accumulateur (onglet figé).
-    s.view = updateView(s.view, frameInput.look, Math.min(frameDt, MAX_FRAME_DT));
-    if (frameInput.command.actionPressed) s.actionLatch = true;
+    const dt = Math.min(frameDt, MAX_FRAME_DT);
+    s.view = updateView(s.view, frameInput.look, dt);
+    updateCharge(s, frameInput, dt);
     if (frameInput.command.divePressed) s.diveLatch = true;
     fx = s.fx.advance(frameDt);
     // Le ralenti debug s'applique aussi au rendu (animations), pas seulement à la simulation.
@@ -167,16 +333,21 @@ export function advanceFrame(
 
   const { curr, lastPress } = s;
   const humanId = s.config.humanPlayerId;
-  // Le geste attendu, l'anneau et l'invitation au plongeon se calculent sur la commande en repère terrain.
-  const command = worldCommand(frameInput.command, s.view.yaw);
+  // Le geste attendu, l'anneau et l'invitation au plongeon se calculent sur la commande en repère terrain
+  // (visée vers l'avant pendant une charge, Ruling 4) ; l'anneau suit la charge courante (§ 5.2).
+  const command = humanWorldCommand(s, curr, frameInput.command);
   const expected = expectedGesture(curr, humanId, command);
+  const { attacking, aimPoint: viewPoint } = sessionAim(s, curr, command);
+  const human = humanOf(s, curr);
+  const aimPoint = viewPoint !== null && human !== null ? previewAimPoint(s, human, viewPoint) : viewPoint;
+  const charge = s.charge?.value ?? null;
   const overlay: Overlay = {
     humanId,
     assistZone:
       humanId !== null && s.config.assistZone && (curr.phase === 'rally' || curr.phase === 'serve')
         ? targetPosition(curr, humanId)
         : null,
-    timingRing: timingRing(curr, humanId, command),
+    timingRing: timingRing(curr, humanId, command, s.charge?.value ?? 0.5),
     events: s.events,
     debug: s.debug
       ? {
@@ -192,6 +363,9 @@ export function advanceFrame(
       : null,
     fx,
     view: s.view,
+    aimPoint,
+    charge,
+    attacking,
   };
   s.events = [];
 
@@ -212,6 +386,8 @@ export function advanceFrame(
       hasSession: true, paused: s.paused, locked: pointer.locked, requestPending: pointer.requestPending ?? false, device: frameInput.device,
       phase: curr.phase,
     }),
+    crosshair: aimPoint !== null,
+    charge,
   };
   return { overlay, hud };
 }

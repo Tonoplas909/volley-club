@@ -1,5 +1,6 @@
 import type { CameraView } from '../camera/view';
 import type { GameState, Gesture } from '../sim/types';
+import { createCrosshair } from './crosshair';
 import { createDiveGauge } from './diveGauge';
 import { createGestureBanner } from './gestureBanner';
 import { createMinimap } from './minimap';
@@ -25,6 +26,10 @@ export interface HudView {
   view: CameraView;
   /** Afficher l'aide « Clique pour orienter la caméra à la souris » (souris non capturée). */
   mouseHint: boolean;
+  /** Afficher le réticule de visée (point visé par la vue, spec Attaque v2 § 4.4). */
+  crosshair: boolean;
+  /** Charge du saut d'attaque en cours, de 0 à 1 (cercle autour du réticule) ; null = pas de charge. */
+  charge: number | null;
 }
 
 export interface Hud {
@@ -112,6 +117,7 @@ export function createHud(root: HTMLElement, actions: HudActions): Hud {
   const gauge = createDiveGauge(dock);
   const card = createPressCard(container);
   const minimap = createMinimap(container);
+  const crosshair = createCrosshair(container);
 
   replay.addEventListener('click', actions.onReplay);
   menu.addEventListener('click', actions.onMenu);
@@ -164,6 +170,7 @@ export function createHud(root: HTMLElement, actions: HudActions): Hud {
       gauge.update(humanId === null ? null : view.diveReadiness);
       card.update(view.lastPress, view.now);
       minimap.update(state, humanId, view.view);
+      crosshair.update(view.crosshair && !view.paused, view.charge);
     },
     hide(): void {
       container.hidden = true;
@@ -177,6 +184,7 @@ export function createHud(root: HTMLElement, actions: HudActions): Hud {
       dock.remove();
       card.dispose();
       minimap.dispose();
+      crosshair.dispose();
       container.remove();
     },
   };

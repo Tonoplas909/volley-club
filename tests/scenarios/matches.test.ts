@@ -1,26 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import type { Difficulty, MatchConfig, TeamId } from '../../src/sim/types';
+import type { TeamId } from '../../src/sim/types';
+import { MAX_TICKS, SEEDS, config } from './common';
 import { runMatch, type MatchRun } from './harness';
 
-/** Limite de durée d'un match : 30 minutes de jeu à 60 Hz. */
-const MAX_TICKS = 60 * 60 * 30;
-const SEEDS = [1, 2, 3, 4, 5] as const;
 /** Format quick : un set de 15 points, 2 points d'écart. */
 const QUICK_TARGET = 15;
 const MIN_FULL_SEQUENCE_SHARE = 0.4;
 const MIN_HARD_WINS = 4;
 const TIMEOUT_MS = 120_000;
-
-function config(seed: number, team0: Difficulty, team1: Difficulty): MatchConfig {
-  return {
-    format: 'quick',
-    playersPerTeam: 2,
-    humanPlayerId: null,
-    difficulty: { teammate: team0, opponents: team1 },
-    assistZone: false,
-    seed,
-  };
-}
 
 const normalRuns = new Map<number, MatchRun>();
 

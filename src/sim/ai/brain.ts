@@ -25,6 +25,8 @@ const SLOW_RADIUS = 0.5;
 const MAX_LATE_TICKS = TUNING.touch.timing.maxTicks;
 
 const ZERO: Vec2 = Object.freeze({ x: 0, z: 0 }) as Vec2;
+/** Champs Attaque v2 de toute commande de l'IA : ni visée au point, ni charge, ni feinte ou frappe au sol au bouton. */
+const AI_EXTRAS = { aimPoint: null, jumpCharge: 0.5, tipPressed: false, groundHitPressed: false } as const;
 
 /**
  * Plongeon décidé sur une trajectoire (spec Plongeon § 5) : tick d'appui sans bruit (ideal − slideTicks),
@@ -137,7 +139,7 @@ export function createBrain(playerId: number, difficulty: Difficulty, seed: numb
   /** Visée et appui du serveur : lancer après serveDelayTicks, frappe au sommet du lancer + bruit. */
   function serveCommand(state: GameState, player: PlayerState, key: string): { aim: Vec2; press: boolean } {
     const nextTick = state.tick + 1;
-    const cmd: Command = { move: ZERO, aim: ZERO, actionPressed: true, divePressed: false };
+    const cmd: Command = { move: ZERO, aim: ZERO, actionPressed: true, divePressed: false, ...AI_EXTRAS };
     if (pressedKey === key || gestureFor(state, player.id, cmd) !== 'serve') return { aim: ZERO, press: false };
     if (state.ball.mode === 'held') {
       const press = nextTick - state.phaseStartTick >= TUNING.ai.serveDelayTicks;
@@ -157,7 +159,7 @@ export function createBrain(playerId: number, difficulty: Difficulty, seed: numb
     if (whoTakesBall(state, player.team) !== player.id) return none;
     const role = assignRoles(state)[player.id];
     const expected: Gesture | null = role ? ROLE_GESTURE[role] : null;
-    const gesture = gestureFor(state, player.id, { move, aim: ZERO, actionPressed: true, divePressed: false });
+    const gesture = gestureFor(state, player.id, { move, aim: ZERO, actionPressed: true, divePressed: false, ...AI_EXTRAS });
     if (gesture === null || gesture !== expected) return none;
     // Contre seulement une fois la passe adverse faite (spec § 7.2).
     if (gesture === 'block' && state.rally.touches !== 2) return none;
@@ -180,7 +182,7 @@ export function createBrain(playerId: number, difficulty: Difficulty, seed: numb
   function diveCommand(state: GameState, player: PlayerState, move: Vec2): Vec2 | null {
     // Ballon relancé au dernier step : jamais d'appui sur une trajectoire toute neuve.
     if (state.ball.traj.startTick === state.tick) return null;
-    const cmd: Command = { move, aim: ZERO, actionPressed: true, divePressed: false };
+    const cmd: Command = { move, aim: ZERO, actionPressed: true, divePressed: false, ...AI_EXTRAS };
     const opp = diveOpportunity(state, player.id, cmd);
     if (opp) {
       const ideal = opp.pressTick + TUNING.dive.slideTicks;
@@ -206,7 +208,7 @@ export function createBrain(playerId: number, difficulty: Difficulty, seed: numb
   return {
     think(state: GameState): Command {
       const player = state.players.find((p) => p.id === playerId);
-      if (!player) return { move: { x: 0, z: 0 }, aim: { x: 0, z: 0 }, actionPressed: false, divePressed: false };
+      if (!player) return { move: { x: 0, z: 0 }, aim: { x: 0, z: 0 }, actionPressed: false, divePressed: false, ...AI_EXTRAS };
 
       // Temps de réaction : une nouvelle trajectoire n'est prise en compte qu'après reactionTicks.
       // Le sommet de son propre lancer de service est connu sans délai.
@@ -248,7 +250,7 @@ export function createBrain(playerId: number, difficulty: Difficulty, seed: numb
         }
       }
       if (decision.press || dive) pressedKey = key;
-      return { move, aim: { ...decision.aim }, actionPressed: decision.press, divePressed: dive };
+      return { move, aim: { ...decision.aim }, actionPressed: decision.press, divePressed: dive, ...AI_EXTRAS };
     },
   };
 }

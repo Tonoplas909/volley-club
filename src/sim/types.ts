@@ -1,12 +1,25 @@
 export type Vec2 = { x: number; z: number };
 export type Vec3 = { x: number; y: number; z: number };
 export type TeamId = 0 | 1;
-export type Gesture = 'serve' | 'reception' | 'set' | 'attack' | 'block';
+export type Gesture = 'serve' | 'reception' | 'set' | 'attack' | 'block' | 'groundHit';
 export type Difficulty = 'easy' | 'normal' | 'hard';
 export type QualityTier = 'perfect' | 'good' | 'ok' | 'miss';
 
 /** Entrée d'un joueur pour un tick. move/aim : norme ≤ 1, repère terrain. */
-export type Command = { move: Vec2; aim: Vec2; actionPressed: boolean; divePressed: boolean };
+export type Command = {
+  move: Vec2;
+  aim: Vec2;
+  actionPressed: boolean;
+  divePressed: boolean;
+  /** Point visé au sol (repère terrain), ou null = visée par `aim` (IA, comportement d'avant l'Attaque v2). */
+  aimPoint: Vec2 | null;
+  /** 0..1, utilisé quand un appui Action démarre une attaque ; 0.5 = saut actuel. */
+  jumpCharge: number;
+  /** Front montant du bouton feinte. */
+  tipPressed: boolean;
+  /** Front montant du bouton frappe au sol. */
+  groundHitPressed: boolean;
+};
 
 /** Trajectoire analytique : temps t = (tick - startTick) / 60. */
 export type Trajectory = { origin: Vec3; velocity: Vec3; startTick: number };
@@ -25,6 +38,10 @@ export type PendingGesture = {
   resolveTick: number;
   quality: number | null; // null = geste joué mais ballon non touché (raté)
   aim: Vec2;
+  /** Attaque jouée en feinte (spec Attaque v2 § 6) ; false pour les autres gestes. */
+  tip: boolean;
+  /** Point visé à l'appui, de secours si la commande du tick de frappe n'en a pas ; null = visée par `aim`. */
+  aimPoint: Vec2 | null;
 };
 
 export type PlayerRole = 'server' | 'receiver' | 'setter' | 'attacker' | 'blocker' | 'defender';
@@ -41,6 +58,8 @@ export type PlayerState = {
   vel: Vec2;
   facing: number;       // radians, 0 = regarde vers +z
   jumpStartTick: number | null;
+  /** Hauteur du saut en cours (m) ; TUNING.player.jumpHeight par défaut. */
+  jumpHeight: number;
   lockedUntilTick: number;
   pending: PendingGesture | null;
   dive: DiveState | null;
